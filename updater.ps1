@@ -1,6 +1,6 @@
 ﻿# 在线更新：比对远端 version.json，逐文件校验 MD5，只下载有变化的文件
 # 由 start.bat（启动前）与网页「检查更新」调用；更新失败不阻断启动。
-# 优先用 Windows 自带 curl.exe（比 .NET 的 Invoke-WebRequest 更稳定、更快）。
+# 多镜像：version.json 取各镜像中版本号最高者；文件下载逐个镜像校验 MD5，命中才采用。
 $ErrorActionPreference = 'SilentlyContinue'
 
 $root     = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -24,22 +24,36 @@ function Get-Md5([string]$p) {
     return ''
 }
 
-# 依次尝试各镜像把 $rel 下载到 $dest，成功返回 $true
-function Get-Remote([string]$rel, [string]$dest, [int]$maxTime = 20) {
+# 依次尝试各镜像把 $rel 下载到 $dest；若给了 $want，则要求 MD5 命中才返回 $true
+# （避免某个镜像缓存旧文件被误用）
+function Get-Remote([string]$rel, [string]$dest, [string]$want = '', [int]$maxTime = 20) {
     foreach ($m in $mirrors) {
+        Remove-Item -LiteralPath $dest -Force
         & $curl -fsSL --connect-timeout 5 --max-time $maxTime -o $dest "$m/$rel" 2>$null | Out-Null
-        if ((Test-Path -LiteralPath $dest) -and (Get-Item -LiteralPath $dest).Length -gt 0) { return $true }
+        if (-not (Test-Path -LiteralPath $dest)) { continue }
+        if ((Get-Item -LiteralPath $dest).Length -le 0) { continue }
+        if ($want -and ((Get-Md5 $dest) -ne $want)) { continue }
+        return $true
     }
+    Remove-Item -LiteralPath $dest -Force
     return $false
 }
 
 Write-Host '[update] 检查最新版本...' -ForegroundColor Cyan
-$verTmp = Join-Path $root '.version.remote.json'
+
+# 取各镜像中版本号最高的 version.json（避免某个镜像缓存旧版本导致误判）
 $remote = $null
-if (Get-Remote 'version.json' $verTmp 8) {
-    try { $remote = Get-Content -LiteralPath $verTmp -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
+foreach ($m in $mirrors) {
+    $t = Join-Path $root '.version.try.json'
+    Remove-Item -LiteralPath $t -Force
+    & $curl -fsSL --connect-timeout 5 --max-time 10 -o $t "$m/version.json" 2>$null | Out-Null
+    if (-not (Test-Path -LiteralPath $t)) { continue }
+    if ((Get-Item -LiteralPath $t).Length -le 0) { continue }
+    try { $r = Get-Content -LiteralPath $t -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $r = $null }
+    Remove-Item -LiteralPath $t -Force
+    if (-not $r -or -not $r.version) { continue }
+    if (-not $remote -or "$($r.version)" -gt "$($remote.version)") { $remote = $r }
 }
-Remove-Item -LiteralPath $verTmp -Force
 if (-not $remote) {
     Write-Host '[update] 无法获取远端版本（网络不可用），跳过更新。' -ForegroundColor Yellow
     exit 0
@@ -50,6 +64,12 @@ if (Test-Path -LiteralPath $localVer) {
     try { $localVersion = (Get-Content -LiteralPath $localVer -Raw -Encoding UTF8 | ConvertFrom-Json).version } catch {}
 }
 Write-Host "[update] 本地 $localVersion / 远端 $($remote.version)"
+
+# 本地不旧于远端则跳过，绝不把本地更新版本降级（镜像缓存滞后时尤其重要）
+if ($localVersion -and ("$($remote.version)" -le "$localVersion")) {
+    Write-Host "[update] 已是最新版本 $localVersion" -ForegroundColor Green
+    exit 0
+}
 
 $failed   = $false
 $changed  = $false
@@ -67,14 +87,8 @@ foreach ($prop in $remote.files.PSObject.Properties) {
 
     $tmp = "$target.new"
     Write-Host "  [下载] $rel" -ForegroundColor Cyan
-    if (-not (Get-Remote $rel $tmp 180)) {
-        Write-Host "  [失败] $rel 下载失败" -ForegroundColor Red
-        Remove-Item -LiteralPath $tmp -Force
-        $failed = $true
-        continue
-    }
-    if ((Get-Md5 $tmp) -ne $want) {
-        Write-Host "  [失败] $rel 校验不一致（可能是 CDN 缓存），保留旧文件" -ForegroundColor Red
+    if (-not (Get-Remote $rel $tmp $want 180)) {
+        Write-Host "  [失败] $rel 下载失败或各镜像内容不一致" -ForegroundColor Red
         Remove-Item -LiteralPath $tmp -Force
         $failed = $true
         continue
@@ -98,8 +112,10 @@ if ($failed) {
     exit 1
 }
 
-# 全部文件均为最新后才写 version.json，避免个别文件被占用时版本号虚高
-try { [IO.File]::WriteAllText($localVer, ($remote | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false)) } catch {}
+# 全部文件均为最新且无待生效项后才写 version.json，避免版本号虚高
+if (-not $deferred) {
+    try { [IO.File]::WriteAllText($localVer, ($remote | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false)) } catch {}
+}
 
 if ($deferred) {
     Write-Host '[update] 部分文件将在程序退出后自动生效，请关闭窗口后重新运行 start.bat。' -ForegroundColor Yellow
