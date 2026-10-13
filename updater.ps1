@@ -14,7 +14,6 @@ if (-not (Test-Path -LiteralPath $curl)) { $curl = 'curl.exe' }
 $mirrors = @(
     "https://ghfast.top/https://raw.githubusercontent.com/$repo/$branch",
     "https://gh-proxy.com/https://raw.githubusercontent.com/$repo/$branch",
-    "https://gcore.jsdelivr.net/gh/$repo@$branch",
     "https://cdn.jsdelivr.net/gh/$repo@$branch",
     "https://raw.githubusercontent.com/$repo/$branch"
 )
@@ -25,14 +24,12 @@ function Get-Md5([string]$p) {
 }
 
 # 语义化版本比较：'v0.1.6' / '0.1.6' -> (0,1,6)，按数值比较（不能按字符串比，否则 0.1.10 < 0.1.9）
+# 只认「主.次.修订」；其它（例如旧的时间戳版本号）一律当作 0.0.0，避免某个镜像缓存了旧版
+# version.json 时，把旧版误判成"最高版本"从而把新版本降级覆盖回去。
 function Convert-Ver([string]$v) {
     $v = "$v".TrimStart('v', 'V')
-    $nums = @()
-    foreach ($p in ($v -split '[.\-+]')) {
-        if ($p -match '^\d+$') { $nums += [int]$p } else { break }
-    }
-    while ($nums.Count -lt 3) { $nums += 0 }
-    return ,@($nums[0], $nums[1], $nums[2])
+    if ($v -notmatch '^(\d+)\.(\d+)\.(\d+)') { return ,@(0, 0, 0) }
+    return ,@([int]$Matches[1], [int]$Matches[2], [int]$Matches[3])
 }
 function Compare-Ver([string]$a, [string]$b) {
     $x = Convert-Ver $a; $y = Convert-Ver $b

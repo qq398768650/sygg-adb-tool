@@ -46,7 +46,6 @@ UPDATE_BRANCH = "main"
 UPDATE_MIRRORS = [
     "https://ghfast.top/https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
     "https://gh-proxy.com/https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
-    "https://gcore.jsdelivr.net/gh/%s@%s" % (UPDATE_REPO, UPDATE_BRANCH),
     "https://cdn.jsdelivr.net/gh/%s@%s" % (UPDATE_REPO, UPDATE_BRANCH),
     "https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
 ]
@@ -73,17 +72,13 @@ def read_local_version():
 
 
 def ver_tuple(v):
-    """把 'v0.1.5' / '0.1.5' 这类语义化版本转成可比较的元组 (0,1,5)。"""
-    nums = []
-    for part in str(v).lstrip("vV").split("."):
-        part = part.split("-")[0].split("+")[0].strip()
-        if part.isdigit():
-            nums.append(int(part))
-        else:
-            break
-    while len(nums) < 3:
-        nums.append(0)
-    return tuple(nums[:3])
+    """把 'v0.1.5' / '0.1.5' 这类语义化版本转成可比较的元组 (0,1,5)。
+    只认「主.次.修订」；其它（例如旧的时间戳版本号）一律当作 (0,0,0)，
+    避免某个镜像缓存了旧版 version.json 时被误判成最高版本。"""
+    m = re.match(r"^v?(\d+)\.(\d+)\.(\d+)", str(v).strip())
+    if not m:
+        return (0, 0, 0)
+    return tuple(int(x) for x in m.groups())
 
 
 def fetch_remote_version(timeout=20):
