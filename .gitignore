@@ -1,0 +1,30 @@
+# ==== 资源 / 大文件（不推送） ====
+*.apk
+*.7z
+*.zip
+*.docx
+fsa/
+批量更新系统OS/
+
+# ==== 运行期数据（设备 / WiFi 等，含敏感信息） ====
+web/prefs.json
+web/macmap.json
+
+# ==== Python 缓存 ====
+__pycache__/
+*.pyc
+
+# ==== 工作笔记（不上传） ====
+.workbuddy/
+
+# ==== 打包 / 备份 / 临时 ====
+build_tmp/
+launcher.exe.bak
+*.tmp
+*.new
+*.log
+
+# ==== 系统 ====
+Thumbs.db
+desktop.ini
+.DS_Store

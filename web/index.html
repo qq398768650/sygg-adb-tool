@@ -1,0 +1,1587 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>批量 ADB 安装工具</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: "Microsoft YaHei", system-ui, sans-serif; background: #0f172a; color: #e2e8f0; padding: 20px; }
+  h1 { font-size: 22px; margin-bottom: 4px; }
+  .sub { color: #94a3b8; font-size: 13px; margin-bottom: 20px; }
+  .panel { background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 18px; margin-bottom: 18px; }
+  /* 左列 ①②③ 纵向排列，右列 ADB 终端 */
+  .cols { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); gap: 18px; align-items: stretch; }
+  .col-main, .col-side { display: flex; flex-direction: column; gap: 18px; min-width: 0; }
+  .col-main > .panel, .col-side > .panel { margin-bottom: 0; }
+  .col-side > .panel { flex: 1; display: flex; flex-direction: column; }
+  .col-side .adb-out { flex: 1; height: auto; min-height: 236px; }
+  @media (max-width: 1000px) { .cols { grid-template-columns: 1fr; } }
+  .panel h2 { font-size: 15px; margin-bottom: 14px; color: #7dd3fc; font-weight: 600; }
+  .panel h2 .dev-count { font-size: 13px; color: #4ade80; font-weight: normal; margin-left: 8px; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  label { font-size: 13px; color: #cbd5e1; }
+  input[type=text], select { background: #0f172a; border: 1px solid #475569; color: #e2e8f0; border-radius: 6px; padding: 8px 10px; font-size: 14px; }
+  input[type=text] { min-width: 180px; }
+  input[type=text]:focus, select:focus { outline: 2px solid #38bdf8; border-color: #38bdf8; }
+  .dropzone { border: 2px dashed #475569; border-radius: 8px; padding: 22px; text-align: center; color: #94a3b8; font-size: 14px; cursor: pointer; transition: border .2s, color .2s; }
+  .dropzone.drag { border-color: #38bdf8; color: #38bdf8; background: #0ea5e92a; }
+  .dropzone .sel { color: #38bdf8; text-decoration: underline; }
+  .devices { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; margin-bottom: 14px; }
+  .dev { border: 1px solid #475569; border-radius: 8px; padding: 12px; font-size: 13px; cursor: pointer; background: #0f172a; user-select: none; position: relative; }
+  .dev.on { border-color: #38bdf8; background: #0ea5e92a; }
+  .dev .sn { font-family: Consolas, monospace; font-size: 11px; word-break: break-all; color: #cbd5e1; }
+  .dev .st { color: #64748b; }
+  .dev.on .st { color: #38bdf8; }
+  .dev .batline { margin-top: 4px; font-size: 11.5px; display: flex; align-items: center; gap: 6px; min-height: 14px; }
+  .dev .batpct { font-family: Consolas, monospace; font-weight: 600; }
+  .dev .batpct.hi { color: #4ade80; }
+  .dev .batpct.mid { color: #facc15; }
+  .dev .batpct.low { color: #f87171; }
+  .dev .batpct.na { color: #64748b; font-weight: 400; }
+  .dev .batzap { color: #4ade80; }
+  .dev .wifi-dot { position: absolute; top: 8px; right: 8px; width: 10px; height: 10px; border-radius: 50%; }
+  .dev .wifi-dot.on { background: #4ade80; box-shadow: 0 0 6px #4ade80; }
+  .dev .wifi-dot.off { background: #f87171; box-shadow: 0 0 6px #f87171; }
+  .dev .wifi-dot.na { background: #64748b; }
+  .dev .wfbtn { margin-top: 8px; padding: 3px 8px; font-size: 11px; border: 1px solid #475569; background: #1e293b; color: #7dd3fc; border-radius: 5px; cursor: pointer; }
+  .dev .wfbtn:hover { background: #0ea5e940; border-color: #38bdf8; }
+  .dev .wfbtn:disabled { opacity: .5; cursor: wait; }
+  .dev .wfres { margin-top: 5px; font-size: 11px; min-height: 13px; }
+  .dev .logbtn { margin-top: 8px; padding: 3px 8px; font-size: 11px; border: 1px solid #475569; background: #1e293b; color: #a7f3d0; border-radius: 5px; cursor: pointer; }
+  .dev .logbtn:hover { background: #05966940; border-color: #34d399; }
+  /* logcat 查看面板 */
+  #logPanel { position: fixed; right: 16px; bottom: 16px; width: 860px; max-width: calc(100vw - 32px);
+    height: 62vh; min-height: 260px; display: none; flex-direction: column; background: #0b1220;
+    border: 1px solid #334155; border-radius: 10px; box-shadow: 0 18px 60px rgba(0,0,0,.65);
+    z-index: 9000; overflow: hidden; }
+  #logPanel.show { display: flex; }
+  #logPanel .lp-head { display: flex; align-items: center; gap: 8px; padding: 9px 12px; background: #1e293b;
+    border-bottom: 1px solid #334155; flex-wrap: wrap; }
+  #logPanel .lp-dot { width: 8px; height: 8px; border-radius: 50%; background: #4ade80; flex-shrink: 0; }
+  #logPanel .lp-dot.off { background: #f87171; }
+  #logPanel .lp-title { font-size: 12.5px; color: #7dd3fc; font-family: Consolas, monospace; }
+  #logPanel .lp-info { font-size: 11.5px; color: #94a3b8; }
+  #logPanel .lp-sp { flex: 1; }
+  #logPanel .lp-btn { padding: 4px 10px; font-size: 12px; border: 1px solid #475569; background: #1e293b;
+    color: #cbd5e1; border-radius: 5px; cursor: pointer; }
+  #logPanel .lp-btn:hover { background: #334155; color: #fff; }
+  #logPanel .lp-btn.on { background: #0369a1; border-color: #38bdf8; color: #fff; }
+  #logPanel .lp-tools { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: #111c2e;
+    border-bottom: 1px solid #1e293b; flex-wrap: wrap; }
+  #logPanel .lp-tools input, #logPanel .lp-tools select { padding: 4px 8px; font-size: 12px; background: #0f172a;
+    border: 1px solid #475569; color: #e2e8f0; border-radius: 5px; }
+  #logPanel .lp-tools #logFilter { flex: 1; min-width: 150px; }
+  #logBody { flex: 1; padding: 10px 12px; overflow: auto; font-family: Consolas, "Courier New", monospace;
+    font-size: 11.5px; line-height: 1.5; color: #cbd5e1; }
+  #logBody .ll { white-space: pre-wrap; word-break: break-all; padding: 0 2px; border-radius: 3px; }
+  #logBody .ll.lv-v { color: #64748b; }
+  #logBody .ll.lv-d { color: #8fa6c4; }
+  #logBody .ll.lv-i { color: #4ade80; }
+  #logBody .ll.lv-w { color: #facc15; }
+  #logBody .ll.lv-e { color: #f87171; }
+  #logBody .ll.lv-f { color: #fff; background: #b91c1c; font-weight: 600; }
+  #logPanel .lp-legend { display: flex; align-items: center; gap: 5px; font-size: 11px;
+    font-family: Consolas, monospace; color: #64748b; }
+  #logPanel .lp-legend i { font-style: normal; font-weight: 600; }
+  /* ADB 终端 */
+  .adb-out { height: 236px; overflow: auto; background: #0b1220; border: 1px solid #334155;
+    border-radius: 6px; padding: 8px 10px; font-family: Consolas, "Courier New", monospace;
+    font-size: 11.5px; line-height: 1.5; }
+  .adb-out .adb-cmd { color: #7dd3fc; white-space: pre-wrap; word-break: break-all; }
+  .adb-out .adb-res { color: #cbd5e1; white-space: pre-wrap; word-break: break-all; }
+  .adb-out .adb-res.bad { color: #f87171; }
+  .adb-out .adb-meta { color: #64748b; font-size: 11px; white-space: pre-wrap; }
+  .adb-quick { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .adb-quick button { padding: 3px 8px; font-size: 11.5px; border: 1px solid #475569;
+    background: #1e293b; color: #94a3b8; border-radius: 4px; cursor: pointer; }
+  .adb-quick button:hover { background: #334155; color: #e2e8f0; }
+  h2 .adb-devlabel { font-size: 11.5px; color: #94a3b8; font-weight: normal; }
+  .dev .appline { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  .dev .appsel { flex: 1; min-width: 0; padding: 4px 6px; font-size: 11.5px; border-radius: 5px;
+    font-family: Consolas, monospace; background: #0f172a; border: 1px solid #475569; color: #e2e8f0;
+    overflow: hidden; text-overflow: ellipsis; }
+  .dev .appsel:disabled { color: #64748b; cursor: not-allowed; }
+  .dev .trash { flex-shrink: 0; padding: 3px 8px; font-size: 13px; line-height: 1.25; border-radius: 5px;
+    border: 1px solid #7f1d1d; background: #7f1d1d33; color: #fca5a5; cursor: pointer; }
+  .dev .trash:hover { background: #b91c1c; color: #fff; border-color: #b91c1c; }
+  .dev .trash:disabled { opacity: .55; cursor: wait; }
+  .btn { background: #0ea5e9; border: none; color: #fff; font-size: 15px; font-weight: 600; padding: 12px 26px; border-radius: 8px; cursor: pointer; }
+  .btn:hover { background: #0284c7; }
+  .btn:disabled { background: #475569; cursor: not-allowed; }
+  .btn.danger { background: #64748b; }
+  .cards { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .card { border: 1px solid #334155; border-radius: 8px; overflow: hidden; background: #111827; }
+  .card .head { display: flex; align-items: center; gap: 10px; padding: 10px 14px; background: #1e293b; border-bottom: 1px solid #334155; }
+  .card .sn { font-family: Consolas, monospace; font-size: 13px; flex: 1; }
+  .badge { font-size: 12px; padding: 3px 10px; border-radius: 12px; font-weight: 600; }
+  .badge.running { background: #0ea5e940; color: #38bdf8; }
+  .badge.ok { background: #22c55e40; color: #4ade80; }
+  .badge.fail { background: #ef444440; color: #f87171; }
+  .badge.idle { background: #47556940; color: #94a3b8; }
+  .steps { padding: 8px 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+  .step { font-size: 11px; padding: 2px 8px; border-radius: 10px; border: 1px solid #475569; color: #94a3b8; }
+  .step.OK { border-color: #22c55e; color: #4ade80; }
+  .step.FAIL { border-color: #ef4444; color: #f87171; }
+  .step.SKIP { border-color: #eab308; color: #facc15; }
+  pre.log { font-family: Consolas, monospace; font-size: 11.5px; color: #a5b4c2; padding: 10px 14px; max-height: 220px; overflow: auto; white-space: pre-wrap; word-break: break-all; background: #0b1220; }
+  .bar { height: 3px; background: #334155; margin: 0 14px 10px; border-radius: 2px; overflow: hidden; }
+  .bar > div { height: 100%; width: 0; background: #0ea5e9; transition: width .4s; }
+  .empty { color: #64748b; font-size: 13px; padding: 10px; }
+  .err { color: #f87171; font-size: 13px; margin-top: 8px; }
+  .hint { color: #94a3b8; font-size: 12px; line-height: 1.6; margin-top: 8px; }
+  .hint b { color: #7dd3fc; font-weight: 600; }
+  .witab td { padding: 6px 8px; border-top: 1px solid #2b3a4e; font-size: 13px; }
+  .witab td.sn { font-family: Consolas, monospace; font-size: 11.5px; color: #cbd5e1; }
+  .okcell { color: #4ade80; }
+  .badcell { color: #f87171; font-weight: 600; }
+  .wifi-summary { margin-top: 10px; padding: 8px 12px; border-radius: 6px; font-size: 14px; background: #0f172a; }
+  .wifi-summary.ok { color: #4ade80; border: 1px solid #22c55e; }
+  .wifi-summary.fail { color: #f87171; border: 1px solid #ef4444; }
+  .summary-banner { margin-top: 12px; padding: 12px 14px; border-radius: 8px; background: #0f172a; border: 1px solid #334155; }
+  .summary-banner.ok { border-color: #22c55e; }
+  .summary-banner.fail { border-color: #ef4444; }
+  .summary-banner .sb-head { display: flex; align-items: center; gap: 10px; font-weight: 600; font-size: 14px; color: #e2e8f0; margin-bottom: 8px; }
+  .summary-banner .sb-head .sb-title.ok { color: #4ade80; }
+  .summary-banner .sb-head .sb-title.fail { color: #f87171; }
+  .summary-banner .sb-close { margin-left: auto; background: none; border: none; color: #94a3b8; font-size: 16px; cursor: pointer; }
+  .summary-banner .sb-close:hover { color: #fff; }
+  .summary-banner pre { font-family: Consolas, monospace; font-size: 12px; color: #a5b4c2; margin: 0; white-space: pre-wrap; word-break: break-all; }
+  h3.actions { font-size: 13px; color: #7dd3fc; margin-bottom: 10px; }
+  /* toast 轻提示 */
+  #toastWrap { position: fixed; top: 16px; right: 16px; z-index: 9999; display: flex; flex-direction: column; gap: 8px; }
+  .toast { min-width: 220px; max-width: 420px; padding: 10px 14px; border-radius: 8px; font-size: 13px; color: #e2e8f0; background: #1e293b; border: 1px solid #334155; box-shadow: 0 6px 20px rgba(0,0,0,.45); opacity: 0; transform: translateX(20px); transition: opacity .25s, transform .25s; }
+  .toast.show { opacity: 1; transform: translateX(0); }
+  .toast.ok { border-color: #22c55e; }
+  .toast.ok .t-dot { background: #4ade80; }
+  .toast.err { border-color: #ef4444; }
+  .toast.err .t-dot { background: #f87171; }
+  .toast.info { border-color: #38bdf8; }
+  .toast.info .t-dot { background: #38bdf8; }
+  .toast .t-row { display: flex; align-items: center; gap: 8px; }
+  .toast .t-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .toast .t-msg { flex: 1; word-break: break-word; }
+  /* 自定义 confirm 弹层 */
+  #modalMask { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 10000; display: none; align-items: center; justify-content: center; }
+  #modalMask.show { display: flex; }
+  .modal { width: 380px; max-width: 90vw; background: #1e293b; border: 1px solid #334155; border-radius: 12px; padding: 20px; box-shadow: 0 12px 40px rgba(0,0,0,.5); }
+  .modal .m-title { font-size: 14px; color: #e2e8f0; margin-bottom: 18px; line-height: 1.6; white-space: pre-wrap; }
+  .modal .m-actions { display: flex; gap: 10px; justify-content: flex-end; }
+  .modal .m-btn { padding: 8px 18px; border-radius: 6px; border: none; font-size: 13px; cursor: pointer; font-weight: 600; }
+  .modal .m-btn.ok { background: #0ea5e9; color: #fff; }
+  .modal .m-btn.ok:hover { background: #0284c7; }
+  .modal .m-btn.cancel { background: #475569; color: #e2e8f0; }
+  .modal .m-btn.cancel:hover { background: #334155; }
+</style>
+</head>
+<body>
+  <h1>批量 ADB 安装工具</h1>
+  <div class="sub">拖入 APK / 填 WiFi → 勾选设备 → 一键并行安装（每台独立线程，互不影响）</div>
+
+  <div class="cols">
+  <div class="col-main">
+  <div class="panel">
+    <h2>① 选择 APK</h2>
+    <div class="dropzone" id="dz">
+      将 <b>.apk</b> 文件拖到此处，或 <span class="sel">点击选择</span>
+    </div>
+    <div id="apkwarn" style="margin-top:8px;font-size:12px;color:#eab308;display:none">已通过后端自动列出项目目录 APK，可下拉选择</div>
+    <div class="row" style="margin-top:12px">
+      <select id="apkSelect" style="flex:1"></select>
+    </div>
+    <div class="err" id="apkErr"></div>
+  </div>
+
+  <div class="panel">
+    <h2>② fsa 数据包</h2>
+    <div id="fsaStatus" style="font-size:13px;margin-bottom:8px">检查中...</div>
+    <div class="dropzone" id="fsaDz" style="padding:14px">
+      将 <b>fsa 文件夹</b>拖到此处，或 <span class="sel">点击选择文件夹</span>
+      <br><span style="font-size:11px;color:#94a3b8">上传后覆盖本地 fsa（也兼容拖入 .zip）</span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>③ 应用配置 + WiFi（留空则跳过连接）</h2>
+    <div class="row" style="margin-bottom:12px">
+      <label>包名</label><input type="text" id="pkg" placeholder="com.hsy.sygg">
+      <label>启动Activity</label><input type="text" id="act" placeholder="com.unity3d.player.UnityPlayerActivity" style="min-width:320px">
+    </div>
+    <div class="row">
+      <label>SSID</label><input type="text" id="ssid" value="HSY_VR" placeholder="WiFi 名称">
+      <select id="ssidPick" style="display:none"></select>
+      <button class="btn" id="ssidScanBtn" style="padding:8px 16px;font-size:13px;background:#475569">扫描热点</button>
+      <label>密码</label><input type="text" id="pass" value="123456789" placeholder="留空=开放式网络">
+      <button class="btn" id="wifiCheckBtn" style="padding:8px 16px;font-size:13px;background:#059669">检测全部设备WiFi</button>
+    </div>
+    <div id="wifiSummary" class="wifi-summary" style="display:none"></div>
+    <table id="wifiTable" class="witab" style="display:none;width:100%;border-collapse:collapse;margin-top:10px">
+      <thead>
+        <tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">设备</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">状态</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">SSID</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">信号</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">速率</th></tr>
+      </thead>
+      <tbody id="wifiTbody"></tbody>
+    </table>
+    <div class="err" id="wifiCheckErr"></div>
+  </div>
+  </div>
+
+  <div class="col-side">
+  <div class="panel">
+    <h2>ADB 终端 <span class="adb-devlabel" id="adbDevLabel"></span></h2>
+    <div class="row" style="margin-bottom:8px">
+      <label>设备</label>
+      <select id="adbDev" style="flex:1;min-width:0"></select>
+      <button class="btn" id="adbClearBtn" style="padding:6px 12px;font-size:12px;background:#475569">清屏</button>
+    </div>
+    <div class="adb-out" id="adbOut"><div class="adb-meta">命令不带 adb 前缀，例如 shell pm list packages -3 、 logcat -d -t 200 。执行时自动加上方所选设备的 -s。</div></div>
+    <div class="row" style="margin-top:8px">
+      <input type="text" id="adbCmd" placeholder="输入 adb 命令，回车执行（↑/↓ 调历史）" spellcheck="false" style="flex:1;min-width:0">
+      <button class="btn" id="adbRunBtn" style="padding:8px 16px;font-size:13px">执行</button>
+    </div>
+    <div class="adb-quick" id="adbQuick">
+      <button data-cmd="devices -l">devices -l</button>
+      <button data-cmd="version">adb 版本</button>
+      <button data-cmd="shell pm list packages -3">第三方应用</button>
+      <button data-cmd="shell getprop ro.product.model">设备型号</button>
+      <button data-cmd="shell settings get global wifi_on">WiFi 开关</button>
+      <button data-cmd="shell dumpsys battery">电量</button>
+      <button data-cmd="shell df -h /sdcard">存储空间</button>
+      <button data-cmd="logcat -d -t 200">logcat 尾部 200</button>
+    </div>
+    <div class="err" id="adbErr"></div>
+  </div>
+  </div>
+  </div>
+
+  <div class="panel">
+    <h2>④ 选择设备 <span class="dev-count" id="devCount">(0 台)</span></h2>
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn" id="scanBtn" style="padding:8px 16px;font-size:13px">刷新设备</button>
+      <button class="btn danger" id="checkAll" style="padding:8px 16px;font-size:13px">全选</button>
+      <button class="btn danger" id="uncheckAll" style="padding:8px 16px;font-size:13px">全不选</button>
+      <button class="btn" id="macmapBtn" style="padding:8px 16px;font-size:13px;background:#7c3aed">收集MAC/序列号对照表</button>
+      <button class="btn" id="batchDidBtn" style="padding:8px 16px;font-size:13px;background:#047857">批量抓取 deviceId（全部在线）</button>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#7dd3fc;cursor:pointer">
+        <input type="checkbox" id="shutdownChk" style="width:16px;height:16px">抓完自动关机
+      </label>
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#7dd3fc;cursor:pointer" title="关闭后对照表只读历史记录，删除的行不会被在线设备自动补回">
+        <input type="checkbox" id="autoCollectChk" style="width:16px;height:16px" checked>自动采集
+      </label>
+    </div>
+    <div class="devices" id="devices"></div>
+    <div id="deviceErr" class="err"></div>
+    <div id="macmapArea" style="display:none;margin-top:12px">
+      <div class="row" style="margin-bottom:8px">
+        <span id="macmapInfo" style="font-size:13px;color:#7dd3fc"></span>
+        <button class="btn danger" id="copyMacmap" style="padding:5px 12px;font-size:12px">复制对照表</button>
+        <button class="btn" id="toggleMacmap" style="padding:5px 12px;font-size:12px;background:#475569">收起</button>
+      </div>
+      <table id="macmapTable" class="witab" style="width:100%;border-collapse:collapse">
+        <thead><tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">adb 序列号</th>
+          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">MAC 地址</th>
+          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">ANDROID_ID</th>
+          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">Unity deviceId</th>
+          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">操作</th></tr></thead>
+        <tbody id="macmapTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>⑤ 执行</h2>
+    <button class="btn" id="runBtn">▶ 并行安装</button>
+    <button class="btn" id="plainBtn" style="background:#0f766e">⚡ 普通安装</button>
+    <label style="display:flex;align-items:center;gap:6px;margin:8px 0;color:#cbd5e1;font-size:13px">
+      <input type="checkbox" id="plainGrantChk" style="width:16px;height:16px" checked>
+      普通安装后授予权限（存储读写/所有文件访问/相机/录音/定位/蓝牙/通知等，不设默认桌面）
+    </label>
+    <button class="btn" id="rebootBtn" style="background:#d97706">重启已选设备</button>
+    <button class="btn" id="poweroffBtn" style="background:#7c3aed">主动关机</button>
+    <div class="hint">
+      <b>普通安装</b>：只执行 <code>adb install -r</code>，<b>不卸载旧包、不推送 fsa、不 root、不连 WiFi、不设默认桌面、不重启</b>。
+      勾选「授予权限」时，安装成功后再静默授权：<code>pm grant</code> 运行时权限（含存储读写/媒体读取）+ <code>appops</code> 所有文件访问/悬浮窗/通知 + 电池白名单（不设 home）；取消勾选则只装软件。
+      需要完整配置请用左边的「并行安装」。
+    </div>
+    <div class="err" id="runErr"></div>
+    <div class="summary-banner" id="summaryBanner" style="display:none"></div>
+  </div>
+
+  <div class="panel">
+    <h2>实时状态</h2>
+    <div class="cards" id="cards"></div>
+    <div class="empty" id="cardsEmpty">尚未安装，点击上方按钮开始</div>
+  </div>
+
+<div id="logPanel">
+  <div class="lp-head">
+    <span class="lp-dot" id="logDot"></span>
+    <span class="lp-title" id="logTitle">设备日志</span>
+    <span class="lp-info" id="logStat"></span>
+    <span class="lp-sp"></span>
+    <button class="lp-btn" id="logPauseBtn">⏸ 暂停</button>
+    <button class="lp-btn" id="logClearViewBtn">清屏</button>
+    <button class="lp-btn" id="logClearDevBtn">清设备缓冲</button>
+    <button class="lp-btn" id="logCopyBtn">复制</button>
+    <button class="lp-btn" id="logSaveBtn">保存文件</button>
+    <button class="lp-btn" id="logCloseBtn">✕ 关闭</button>
+  </div>
+  <div class="lp-tools">
+    <span class="lp-info">行数</span>
+    <select id="logLines">
+      <option>300</option><option selected>600</option><option>1200</option><option>3000</option>
+    </select>
+    <span class="lp-info">级别</span>
+    <select id="logLevel">
+      <option value="">全部</option>
+      <option value="*:W">警告及以上 (*:W)</option>
+      <option value="*:E">仅错误 (*:E)</option>
+    </select>
+    <input id="logFilter" placeholder="关键字过滤（如 Unity / deviceId / FATAL）">
+    <label class="lp-info" style="display:flex;align-items:center;gap:4px;cursor:pointer">
+      <input type="checkbox" id="logAutoScroll" checked style="width:14px;height:14px">自动滚到底
+    </label>
+    <span class="lp-legend" title="日志级别颜色：V 冗余 / D 调试 / I 信息 / W 警告 / E 错误 / F 致命">
+      <i style="color:#64748b">V</i><i style="color:#8fa6c4">D</i><i style="color:#4ade80">I</i>
+      <i style="color:#facc15">W</i><i style="color:#f87171">E</i>
+      <i style="color:#fff;background:#b91c1c;border-radius:2px;padding:0 3px">F</i>
+    </span>
+  </div>
+  <div id="logBody">点设备卡片上的「日志」按钮开始查看</div>
+</div>
+
+<div id="toastWrap"></div>
+<div id="modalMask"><div class="modal">
+  <div class="m-title" id="modalTitle"></div>
+  <div class="m-actions">
+    <button class="m-btn cancel" id="modalCancel">取消</button>
+    <button class="m-btn ok" id="modalOk">确定</button>
+  </div>
+</div></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const state = { apks: [], devices: [], statusMap: {}, wifiMap: {}, apkPath: "", running: false,
+                devicesChecked: {}, appSel: {} };
+
+let toastSeq = 0;
+function toast(msg, type='info', ms=2600) {
+  const wrap = $('toastWrap');
+  const el = document.createElement('div');
+  el.className = 'toast ' + type;
+  el.innerHTML = `<div class="t-row"><span class="t-dot"></span><span class="t-msg"></span></div>`;
+  el.querySelector('.t-msg').textContent = msg;
+  wrap.appendChild(el);
+  requestAnimationFrame(() => el.classList.add('show'));
+  const id = ++toastSeq;
+  el.dataset.tid = id;
+  setTimeout(() => {
+    el.classList.remove('show');
+    setTimeout(() => el.remove(), 300);
+  }, ms);
+}
+
+function confirmUI(msg) {
+  return new Promise(resolve => {
+    const mask = $('modalMask'), title = $('modalTitle'),
+          ok = $('modalOk'), cancel = $('modalCancel');
+    title.textContent = msg;
+    mask.classList.add('show');
+    const done = v => { mask.classList.remove('show'); ok.onclick = null; cancel.onclick = null; resolve(v); };
+    ok.onclick = () => done(true);
+    cancel.onclick = () => done(false);
+  });
+}
+let poll = null;
+
+function api(path, opt) {
+  return fetch('/api/' + path, opt).then(r => r.json());
+}
+
+// 记住上次填写的 WiFi（落盘到项目目录 prefs.json），刷新/重启后自动回填
+let prefsTimer = null;
+function saveWifiPrefs(immediate) {
+  const send = () => api('prefs', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ wifi_ssid: $('ssid').value.trim(), wifi_pass: $('pass').value }) })
+    .catch(() => {});
+  if (prefsTimer) { clearTimeout(prefsTimer); prefsTimer = null; }
+  if (immediate) send();
+  else prefsTimer = setTimeout(send, 400);
+}
+
+// 根据当前选中的 APK 自动识别并回填包名 / 启动 Activity
+function autoFillFromApk(silent) {
+  const sel = $('apkSelect') ? $('apkSelect').value : '';
+  if (!sel) return;
+  api('apk_info?apk=' + encodeURIComponent(sel)).then(d => {
+    if (d.pkg) {
+      $('pkg').value = d.pkg;
+      if (d.act) $('act').value = d.act;
+      if (!silent) toast(`已识别包名：${d.pkg}`, 'ok');
+    } else if (!silent) {
+      toast('未能从该 APK 识别包名，请手动填写', 'err');
+    }
+  }).catch(() => {});
+}
+
+function init() {
+  api('config').then(cfg => {
+    if (cfg.PKG) $('pkg').value = cfg.PKG;
+    if (cfg.ACT) $('act').value = cfg.ACT;
+  }).catch(()=>{});
+  // 回填上次填写的 WiFi（没有记录时保留输入框默认值）
+  api('prefs').then(p => {
+    if (typeof p.wifi_ssid === 'string') $('ssid').value = p.wifi_ssid;
+    if (typeof p.wifi_pass === 'string') $('pass').value = p.wifi_pass;
+  }).catch(()=>{});
+  $('ssid').addEventListener('input', () => saveWifiPrefs());
+  $('ssid').addEventListener('change', () => saveWifiPrefs(true));
+  $('pass').addEventListener('input', () => saveWifiPrefs());
+  $('pass').addEventListener('change', () => saveWifiPrefs(true));
+  api('apks').then(d => {
+    state.apks = d.apks || [];
+    const sel = $('apkSelect');
+    if (!state.apks.length) {
+      sel.innerHTML = '<option value="">(目录中无 .apk，请拖入)</option>';
+      $('apkwarn').style.display = 'block';
+    } else {
+      sel.innerHTML = state.apks.map(a => `<option value="${a}">${a}</option>`).join('');
+      $('apkwarn').style.display = 'none';
+      autoFillFromApk(true);   // 自动识别包名 / Activity
+    }
+  }).catch(()=>{
+    $('apkwarn').style.display = 'block';
+  });
+  $('apkSelect').addEventListener('change', () => autoFillFromApk(false));
+  refreshDevices();
+}
+
+function refreshDevices() {
+  api('devices').then(d => {
+    state.devices = d.devices || [];
+    syncCardApps();          // 新出现的设备自动拉取已装应用列表
+    syncCardBattery();       // 同步电量（30 秒 TTL）
+    adbDevices();            // 同步 ADB 终端的设备下拉框
+    renderDevices();
+  }).catch(()=>{ $('deviceErr').textContent = '无法连接后端'; });
+}
+
+function refreshWifi() {
+  api('wificheck').then(d => {
+    const map = {};
+    (d.wifi||[]).forEach(w => map[w.serial] = w);
+    state.wifiMap = map;
+    renderDevices();
+  }).catch(()=>{});
+}
+
+function renderDevices() {
+  const box = $('devices');
+  $('devCount').textContent = `(${state.devices.length} 台)`;
+  if (!state.devices.length) { box.innerHTML = '<div class="empty">未发现在线设备</div>'; return; }
+  // 重绘前先记住用户在下拉框里选中的项，避免被轮询刷新重置
+  box.querySelectorAll('.appsel').forEach(sel => {
+    if (sel.value && sel.dataset.sn) state.appSel[sel.dataset.sn] = sel.value;
+  });
+  // 用户正在操作卡片内的控件（下拉展开中）时跳过一次重绘，避免下拉被关掉
+  const ae = document.activeElement;
+  if (ae && box.contains(ae) && (ae.classList.contains('appsel') || ae.classList.contains('trash'))) return;
+  if (!state.devices.some(s => state.devicesChecked && state.devicesChecked[s])) {
+    state.devicesChecked = state.devicesChecked || {};
+    if (!Object.keys(state.devicesChecked).length) {
+      state.devices.forEach(s => state.devicesChecked[s] = true);
+    }
+  }
+  box.innerHTML = state.devices.map(s => {
+    const on = state.devicesChecked[s];
+    const st = state.statusMap[s];
+    let stxt = st ? (st.state === 'running' ? '安装中…' : (st.result==='OK'?'完成 ✓':'已完成 ✗')) : 'idle';
+    const wf = state.wifiMap[s];
+    let wcls = 'na', wtxt = '';
+    if (wf) { wcls = wf.connected ? 'on' : 'off'; wtxt = wf.ssid; }
+    return `<div class="dev ${on?'on':''}" data-sn="${s}">
+      <span class="wifi-dot ${wcls}" title="${wtxt ? '已连接: ' + wtxt : (wcls==='off' ? 'WiFi未连接' : 'WiFi状态未知')}"></span>
+      <div class="sn">${s}</div><div class="st">${stxt}</div>
+      ${batLineHtml(s)}
+      <button class="wfbtn" data-sn="${s}">⟳ 重连WiFi</button>
+      <button class="logbtn" data-sn="${s}">📜 日志</button>
+      ${appLineHtml(s)}
+      <div class="wfres" data-sn="${s}"></div></div>`;
+  }).join('');
+  box.querySelectorAll('.dev').forEach(el => {
+    el.addEventListener('click', (e) => {
+      const t = e.target;
+      if (t.classList && (t.classList.contains('wfbtn') || t.classList.contains('logbtn') ||
+                          t.classList.contains('appsel') || t.classList.contains('trash'))) return;
+      const s = el.dataset.sn;
+      state.devicesChecked[s] = !state.devicesChecked[s];
+      renderDevices();
+    });
+  });
+  box.querySelectorAll('.wfbtn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      reconnectSingleWifi(btn);
+    });
+  });
+  box.querySelectorAll('.logbtn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openLog(btn.dataset.sn);
+    });
+  });
+  box.querySelectorAll('.appsel').forEach(sel => {
+    sel.addEventListener('click', e => e.stopPropagation());
+    sel.addEventListener('change', e => {
+      e.stopPropagation();
+      state.appSel[sel.dataset.sn] = sel.value;
+    });
+  });
+  box.querySelectorAll('.trash').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      uninstallFromCard(btn);
+    });
+  });
+}
+
+// 设备卡片里的「已装应用下拉框 + 垃圾桶」HTML
+function appLineHtml(s) {
+  const d = appsState.data[s];
+  if (!d) {
+    return `<div class="appline"><select class="appsel" data-sn="${s}" disabled><option>读取中…</option></select></div>`;
+  }
+  if (d.error) {
+    return `<div class="appline"><select class="appsel" data-sn="${s}" disabled title="${esc(d.error)}"><option>读取失败</option></select></div>`;
+  }
+  if (!(d.apps || []).length) {
+    return `<div class="appline"><select class="appsel" data-sn="${s}" disabled title="设备上没有第三方应用"><option>无</option></select></div>`;
+  }
+  const cur = state.appSel[s];
+  const opts = d.apps.map(a =>
+    `<option value="${esc(a.pkg)}"${a.pkg === cur ? ' selected' : ''}>${esc(a.pkg)}</option>`).join('');
+  return `<div class="appline"><select class="appsel" data-sn="${s}" title="设备上已安装的应用">${opts}</select>` +
+         `<button class="trash" data-sn="${s}" title="卸载选中的应用">🗑</button></div>`;
+}
+
+// 设备卡片里的「电量」HTML
+function batLineHtml(s) {
+  const b = batteryState.data[s];
+  if (!b) return `<div class="batline"><span class="batpct na">🔋 读取中…</span></div>`;
+  if (!b.ok || b.level === null || b.level === undefined) {
+    return `<div class="batline"><span class="batpct na" title="${esc(b.error || '读取不到电量')}">🔋 未知</span></div>`;
+  }
+  const lv = b.level;
+  const cls = lv >= 50 ? 'hi' : (lv >= 20 ? 'mid' : 'low');
+  const tip = `电量 ${lv}%${b.charging ? '，正在充电' : ''}`;
+  return `<div class="batline" title="${esc(tip)}">` +
+         `<span class="batpct ${cls}">🔋 ${lv}%</span>` +
+         (b.charging ? '<span class="batzap" title="正在充电">⚡</span>' : '') +
+         `</div>`;
+}
+
+// 电量刷新：批量接口 + 30 秒 TTL，避免每 8 秒刷新时反复敲 adb
+const batteryState = { data: {}, fetchedAt: 0, busy: false };
+const BATTERY_TTL = 30000;
+
+function syncCardBattery(force) {
+  if (batteryState.busy) return;
+  if (!force && Date.now() - batteryState.fetchedAt < BATTERY_TTL) return;
+  batteryState.busy = true;
+  api('battery').then(d => {
+    batteryState.data = d.batteries || {};
+    batteryState.fetchedAt = Date.now();
+    renderDevices();
+  }).catch(()=>{}).finally(()=>{ batteryState.busy = false; });
+}
+
+function reconnectSingleWifi(btn) {
+  const s = btn.dataset.sn;
+  const ssid = $('ssid').value.trim();
+  if (!ssid) { toast('请先在 ② WiFi 里填写 SSID', 'err'); return; }
+  const resEl = document.querySelector(`.wfres[data-sn="${s}"]`);
+  btn.disabled = true;
+  btn.textContent = '连接中…';
+  if (resEl) resEl.textContent = '正在连接…';
+  api('devicewifi', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ serial:s, ssid:ssid, pass:$('pass').value.trim() }) })
+    .then(r => {
+      if (resEl) {
+        resEl.style.color = r.ok ? '#4ade80' : '#f87171';
+        resEl.textContent = r.ok ? (`已连接 ${r.ssid}  (${r.rssi}dBm, ${r.speed})`)
+                                 : ('连接失败: ' + (r.steps||[]).slice(-1)[0]?.detail || '未连接');
+      }
+      if (r.ok) { toast(`设备 ${s} WiFi 已连接：${r.ssid}（信号 ${r.rssi}dBm）`, 'ok'); }
+      else { toast(`设备 ${s} WiFi 连接失败，请检查 SSID/密码`, 'err'); }
+    }).catch(e => { if (resEl){ resEl.textContent='请求失败'; resEl.style.color='#f87171'; } })
+    .finally(() => {
+      btn.disabled = false;
+      btn.textContent = '⟳ 重连WiFi';
+      refreshWifi();
+    });
+}
+
+function renderStatus() {
+  const cards = $('cards');
+  const list = Object.values(state.statusMap);
+  if (!list.length) { $('cardsEmpty').style.display='block'; cards.innerHTML=''; return; }
+  $('cardsEmpty').style.display='none';
+  // 记录每个日志框当前的滚动状态（是否贴底、以及相对位置），重绘后恢复
+  const prev = {};
+  document.querySelectorAll('.card').forEach(card => {
+    const snEl = card.querySelector('.head .sn');
+    const pre = card.querySelector('pre.log');
+    if (snEl && pre) {
+      prev[snEl.textContent] = {
+        atBottom: (pre.scrollTop + pre.clientHeight >= pre.scrollHeight - 2),
+        ratio: pre.scrollHeight > 0 ? (pre.scrollTop / pre.scrollHeight) : 0
+      };
+    }
+  });
+  cards.innerHTML = list.map(s => {
+    let st = s.state, badgeTxt, badgeCls;
+    if (st === 'running') { badgeTxt='安装中'; badgeCls='running'; }
+    else if (st === 'done') { badgeTxt = s.result==='OK' ? '成功' : '有失败'; badgeCls = s.result==='OK'?'ok':'fail'; }
+    else { badgeTxt='待处理'; badgeCls='idle'; }
+    const stepHtml = (s.steps||[]).map(x=>`<span class="step ${x[1]}">${x[0]}</span>`).join('');
+    const pct = Math.round(((s.ok||0)+(s.fail||0)+(s.skip||0))/9*100);
+    const logHtml = (s.logs||[]).map(l=>esc(l)).join('\n');
+    return `<div class="card">
+      <div class="head"><span class="sn">${s.serial}</span>
+        <span>OK=${s.ok||0} FAIL=${s.fail||0} SKIP=${s.skip||0}</span>
+        <span class="badge ${badgeCls}">${badgeTxt}</span></div>
+      <div class="bar"><div style="width:${st==='done'?100:pct}%"></div></div>
+      <div class="steps">${stepHtml}</div>
+      <pre class="log">${logHtml}</pre></div>`;
+  }).join('');
+  // 重绘后恢复滚动：之前贴底则继续贴底（跟随最新日志），否则按比例保持阅读位置
+  document.querySelectorAll('.card').forEach(card => {
+    const snEl = card.querySelector('.head .sn');
+    const pre = card.querySelector('pre.log');
+    if (snEl && pre && prev[snEl.textContent]) {
+      const p = prev[snEl.textContent];
+      if (p.atBottom) pre.scrollTop = pre.scrollHeight;
+      else pre.scrollTop = Math.round(p.ratio * pre.scrollHeight);
+    }
+  });
+}
+
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+function refreshStatus() {
+  api('status').then(d => {
+    const map = {};
+    (d.devices||[]).forEach(s => map[s.serial]=s);
+    state.statusMap = map;
+    renderStatus();
+    const anyRunning = Object.values(map).some(s=>s.state==='running');
+    $('runBtn').disabled = anyRunning;
+    $('plainBtn').disabled = anyRunning;
+    $('rebootBtn').disabled = anyRunning;
+    $('poweroffBtn').disabled = anyRunning;
+    if (!anyRunning) renderDevices();
+    // 本轮安装全部结束后，汇总有失败的设备并弹窗（只弹一次）
+    if (state.runningSerials && state.runningSerials.length && !anyRunning) {
+      const finished = state.runningSerials.every(s => map[s] && map[s].state === 'done');
+      if (finished) {
+        const batch = state.runningSerials.slice();
+        state.runningSerials = null;
+        showInstallSummary(batch, map);
+      }
+    }
+  }).catch(()=>{});
+}
+
+function showInstallSummary(batch, map) {
+  const failed = batch.filter(s => map[s] && map[s].result === 'FAIL');
+  const okDevs = batch.filter(s => map[s] && map[s].result === 'OK');
+  const banner = $('summaryBanner');
+  banner.innerHTML = '<div class="sb-head"><span class="sb-title">汇总中…</span>' +
+    '<button class="sb-close" title="关闭">✕</button></div><pre></pre>';
+  banner.style.display = 'block';
+  banner.className = 'summary-banner';
+  banner.querySelector('.sb-close').onclick = () => { banner.style.display = 'none'; };
+  const pre = banner.querySelector('pre');
+  // 拉取最新 deviceId 对照表，汇总抓取结果
+  api('macmap').then(d => {
+    const bySerial = {};
+    (d.info||[]).forEach(x => bySerial[x.serial] = x.device_id);
+    const grabbed = batch.filter(s => bySerial[s]);
+    const missed = batch.filter(s => !bySerial[s]);
+    let lines = [];
+    lines.push(`安装完成（共 ${batch.length} 台）`);
+    lines.push('');
+    if (okDevs.length) lines.push(`安装成功：${okDevs.length} 台`);
+    if (failed.length) lines.push(`安装未完全成功：${failed.length} 台\n` + failed.join('\n'));
+    if (grabbed.length) {
+      lines.push('');
+      lines.push('已自动记录 Unity deviceId：');
+      grabbed.forEach(s => lines.push(`${s}  ${bySerial[s]}`));
+    }
+    if (missed.length) {
+      lines.push('');
+      lines.push('以下设备未抓取到 deviceId（可后续在对照表点「抓取」补）：');
+      lines.push(missed.join('\n'));
+    }
+    const cls = failed.length ? 'fail' : 'ok';
+    banner.className = 'summary-banner ' + cls;
+    banner.querySelector('.sb-title').textContent = cls === 'ok' ? '安装完成 ✓' : '安装完成（部分未成功）';
+    banner.querySelector('.sb-title').className = 'sb-title ' + cls;
+    pre.textContent = lines.join('\n');
+  }).catch(() => { pre.textContent = '安装完成（汇总加载失败）'; });
+}
+
+function checkWifi() {
+  const btn = $('wifiCheckBtn');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '检测中…';
+  $('wifiCheckErr').textContent = '';
+  api('wificheck').then(d => {
+    const ws = d.wifi || [];
+    const sum = d.summary || {};
+    const tbody = $('wifiTbody');
+    tbody.innerHTML = ws.map(w => {
+      let statusCell, cls;
+      if (w.connected) { statusCell = '已连接'; cls = 'okcell'; }
+      else if (w.wifi_on) { statusCell = '未连接'; cls = 'badcell'; }
+      else { statusCell = 'WiFi关闭'; cls = 'badcell'; }
+      const rssi = w.rssi == null ? '-' : w.rssi + ' dBm';
+      return `<tr><td class="sn">${w.serial}</td>
+        <td class="${cls}">${statusCell}</td>
+        <td>${w.ssid ? esc(w.ssid) : '-'}</td>
+        <td>${rssi}</td><td>${w.speed || '-'}</td></tr>`;
+    }).join('');
+    $('wifiTable').style.display = 'table';
+    // 同步到设备格子
+    const wmap = {};
+    ws.forEach(w => wmap[w.serial] = w);
+    state.wifiMap = wmap;
+    renderDevices();
+    const s = $('wifiSummary');
+    s.style.display = 'block';
+    const allOk = sum.connected === sum.total && sum.total > 0;
+    s.className = 'wifi-summary ' + (allOk ? 'ok' : 'fail');
+    s.textContent = `已联网 ${sum.connected}/${sum.total} 台` +
+      (sum.wifi_off ? `（其中 WiFi 关闭 ${sum.wifi_off} 台）` : '');
+    const disconnected = ws.filter(w => !w.connected);
+    if (disconnected.length && sum.total > 0) {
+      toast(`有 ${disconnected.length} 台设备 WiFi 未连接，请检查设置`, 'err', 4000);
+    }
+  }).catch(e => { $('wifiCheckErr').textContent = '检测失败：' + e.message; })
+    .finally(() => { btn.disabled = false; btn.textContent = old; });
+}
+
+$('wifiCheckBtn').onclick = checkWifi;
+
+$('ssidScanBtn').onclick = () => {
+  const btn = $('ssidScanBtn');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '扫描中…';
+  api('wifi_scan').then(d => {
+    const pick = $('ssidPick');
+    if (d.error || !d.ssids || !d.ssids.length) {
+      pick.style.display = 'none';
+      toast('未扫到热点（请确认有设备在线且 WiFi 已开启）', 'err');
+    } else {
+      // 扫描结果直接填入下拉框并展开，选中即覆盖 SSID 输入框
+      pick.innerHTML = d.ssids.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+      pick.style.display = '';
+      pick.focus();
+      toast(`扫到 ${d.ssids.length} 个热点，请选择`, 'ok');
+    }
+  }).catch(e => { toast('扫描失败：' + e.message, 'err'); })
+    .finally(() => { btn.disabled = false; btn.textContent = old; });
+};
+
+$('ssidPick').onchange = () => {
+  const pick = $('ssidPick');
+  if (pick.value) {
+    $('ssid').value = pick.value;
+    saveWifiPrefs(true);
+    toast(`SSID 已设置为：${pick.value}`, 'ok');
+  }
+  pick.style.display = 'none';
+};
+
+function collectMacmap() {
+  const btn = $('macmapBtn');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '收集中…';
+  const auto = $('autoCollectChk').checked ? '1' : '0';
+  api('macmap?auto=' + auto).then(d => {
+    const infos = d.info || [];
+    const tbody = $('macmapTbody');
+    const noMac = infos.filter(x => !x.mac);
+    const deviceIds = infos.filter(x => x.device_id);
+    tbody.innerHTML = infos.map(x => {
+      const mac = x.mac || '<span style="color:#f87171">未获取到</span>';
+      const id = x.android_id || '-';
+      const macColor = x.mac ? '' : 'color:#f87171';
+      const delBtn = `<td class="sn"><button class="btn danger" data-del="${x.serial}" style="padding:4px 10px;font-size:12px;background:#b91c1c">删除</button></td>`;
+      if (x.device_id) {
+        return `<tr><td class="sn">${x.serial}</td>
+          <td class="sn" style="${macColor}">${mac}</td>
+          <td class="sn">${id}</td>
+          <td class="sn" style="color:#4ade80">${x.device_id}</td>
+          ${delBtn}</tr>`;
+      }
+      return `<tr><td class="sn">${x.serial}</td>
+        <td class="sn" style="${macColor}">${mac}</td>
+        <td class="sn">${id}</td>
+        <td class="sn">
+          <span style="color:#6b7280">未采集</span>
+          <button class="btn danger" data-grab="${x.serial}" style="padding:4px 10px;font-size:12px;background:#7c3aed">抓取 deviceId</button>
+        </td>
+        ${delBtn}</tr>`;
+    }).join('');
+    $('macmapArea').style.display = 'block';
+    $('macmapInfo').textContent = `共 ${infos.length} 台设备` +
+      (noMac.length ? `，其中 ${noMac.length} 台未获取到 MAC` : '') +
+      (deviceIds.length ? `，deviceId 已采集 ${deviceIds.length} 台` : '，deviceId 需抓取');
+    if (!infos.length) toast('未发现在线设备', 'err');
+    bindGrab();
+    bindDelete();
+  }).catch(e => { $('deviceErr').textContent = '收集失败：' + e.message; })
+    .finally(() => { btn.disabled = false; btn.textContent = old; });
+}
+
+function bindGrab() {
+  document.querySelectorAll('[data-grab]').forEach(b => {
+    b.onclick = () => grabDeviceId(b);
+  });
+}
+
+function bindDelete() {
+  document.querySelectorAll('[data-del]').forEach(b => {
+    b.onclick = () => deleteMacmapRow(b);
+  });
+}
+
+async function deleteMacmapRow(btn) {
+  const serial = btn.getAttribute('data-del');
+  if (!await confirmUI(`确定删除 ${serial} 的对照记录吗？`)) return;
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '删除中…';
+  api('macmap_delete', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ serial: serial }) })
+    .then(r => {
+      if (r.error) throw new Error(r.error);
+      toast(`已删除 ${serial} 的记录`, 'ok');
+      collectMacmap();
+    }).catch(e => {
+      btn.disabled = false;
+      btn.textContent = old;
+      toast('删除失败：' + e.message, 'err');
+    });
+}
+
+function grabDeviceId(btn) {
+  const serial = btn.getAttribute('data-grab');
+  const row = btn.closest('tr');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '抓取中…';
+  api('deviceid', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ serial: serial, pkg: $('pkg').value.trim(), act: $('act').value.trim() }) }).then(d => {
+    if (d.ok && d.device_id) {
+      // 直接把 deviceId 填进表格行，绿色显示，不再弹窗
+      const td = document.createElement('td');
+      td.className = 'sn';
+      td.style.color = '#4ade80';
+      td.textContent = d.device_id;
+      btn.closest('td').replaceWith(td);
+    } else if (row) {
+      btn.textContent = '重试';
+      btn.disabled = false;
+      if (!row.querySelector('.grab-err')) {
+        const td = document.createElement('td');
+        td.className = 'sn grab-err';
+        td.style.color = '#f87171';
+        td.style.fontSize = '11px';
+        td.textContent = '未抓到（应用未发 heartbeat）';
+        row.appendChild(td);
+      }
+    }
+  }).catch(e => {
+    if (row) {
+      btn.textContent = '重试';
+      btn.disabled = false;
+      if (!row.querySelector('.grab-err')) {
+        const td = document.createElement('td');
+        td.className = 'sn grab-err';
+        td.style.color = '#f87171';
+        td.style.fontSize = '11px';
+        td.textContent = '失败：' + e.message;
+        row.appendChild(td);
+      }
+    }
+  });
+}
+
+function batchGrabDeviceId() {
+  const btn = $('batchDidBtn');
+  btn.disabled = true;
+  const old = btn.textContent;
+  btn.textContent = '批量抓取中…（约30秒）';
+  const info = $('macmapInfo');
+  const shutdown = $('shutdownChk') ? $('shutdownChk').checked : false;
+  const startTime = Date.now();
+  const ops = { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ shutdown: shutdown }) };
+  api('deviceid_all', ops).then(d => {
+    const secs = ((Date.now() - startTime) / 1000).toFixed(0);
+    let msg = `批量抓取完成：成功 ${d.ok} 台，失败 ${d.fail} 台（用时 ${secs} 秒）`;
+    if (shutdown && d.shutdown && d.shutdown.length) {
+      msg += `，已关机 ${d.shutdown.length} 台`;
+    } else if (shutdown && d.shutdown && !d.shutdown.length) {
+      msg += '，所选设备未执行关机';
+    }
+    if (info) info.textContent = msg;
+    // 重新加载表格展示最新结果（含新抓到的 deviceId）
+    collectMacmap();
+  }).catch(e => {
+    if (info) info.textContent = '批量抓取失败：' + e.message;
+  }).finally(() => { btn.disabled = false; btn.textContent = old; });
+}
+
+function copyMacmap() {
+  const infos = Array.from(document.querySelectorAll('#macmapTbody tr')).map(tr =>
+    Array.from(tr.children).map(td => td.textContent).join('\t'));
+  const text = '序列号\tMAC地址\tANDROID_ID\tUnity_deviceId\n' + infos.join('\n');
+  try {
+    navigator.clipboard.writeText(text).then(() => toast('已复制对照表到剪贴板', 'ok'))
+      .catch(() => manualCopy(text));
+  } catch(e) { manualCopy(text); }
+}
+
+function manualCopy(text) {
+  const ta = document.createElement('textarea');
+  ta.value = text; document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); toast('已复制对照表到剪贴板', 'ok'); }
+  catch(e) { toast('复制失败，请手动复制', 'err'); }
+  document.body.removeChild(ta);
+}
+
+$('macmapBtn').onclick = collectMacmap;
+$('copyMacmap').onclick = copyMacmap;
+$('batchDidBtn').onclick = batchGrabDeviceId;
+$('toggleMacmap').onclick = () => {
+  const t = $('macmapTable');
+  const btn = $('toggleMacmap');
+  const hidden = t.style.display === 'none';
+  t.style.display = hidden ? '' : 'none';
+  btn.textContent = hidden ? '收起' : '展开';
+};
+
+function getSelectedApkPath() {
+  return $('apkSelect').value;
+}
+
+$('scanBtn').onclick = () => { syncCardBattery(true); refreshDevices(); };
+$('checkAll').onclick = () => { state.devicesChecked={}; state.devices.forEach(s=>state.devicesChecked[s]=true); renderDevices(); };
+$('uncheckAll').onclick = () => { state.devicesChecked={}; renderDevices(); };
+
+$('runBtn').onclick = () => {
+  const sel = getSelectedApkPath();
+  if (!sel) { $('runErr').textContent = '请先选择 APK'; return; }
+  const devs = state.devices.filter(s=>state.devicesChecked[s]);
+  if (!devs.length) { $('runErr').textContent = '请至少选择一台设备'; return; }
+  $('runErr').textContent = '';
+  saveWifiPrefs(true);   // 点击安装时把当前 WiFi 一并记住
+  api('install', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ apk: sel, pkg:$('pkg').value.trim(), act:$('act').value.trim(),
+      wifi_ssid:$('ssid').value.trim(),
+      wifi_pass:$('pass').value.trim(), serials: devs }) })
+    .then(r => {
+      if (r.error) throw new Error(r.error);
+      state.runningSerials = devs.slice();
+      if (poll) clearInterval(poll);
+      refreshStatus();
+      poll = setInterval(refreshStatus, 1500);
+    }).catch(e => { $('runErr').textContent = '启动失败：'+e.message; });
+};
+
+$('plainBtn').onclick = async () => {
+  const sel = getSelectedApkPath();
+  if (!sel) { $('runErr').textContent = '请先选择 APK'; return; }
+  const devs = state.devices.filter(s=>state.devicesChecked[s]);
+  if (!devs.length) { $('runErr').textContent = '请至少选择一台设备'; return; }
+  const grant = $('plainGrantChk').checked;
+  const go = await confirmUI(
+    `对选中的 ${devs.length} 台设备执行「普通安装」？\n\n` +
+    (grant
+      ? `仅安装软件（adb install -r），安装后授予运行时权限。\n`
+      : `仅安装软件（adb install -r），不授予任何权限。\n`) +
+    `不卸载旧包 / 不推 fsa / 不 root / 不连 WiFi / 不设桌面 / 不重启。`);
+  if (!go) return;
+  $('runErr').textContent = '';
+  api('plain_install', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ apk: sel, serials: devs, grant_perms: grant }) })
+    .then(r => {
+      if (r.error) throw new Error(r.error);
+      toast(`普通安装已下发：${devs.length} 台`, 'ok');
+      // 普通安装不做 deviceId 抓取，不触发「安装完成」汇总弹窗，只看设备卡片即可
+      if (poll) clearInterval(poll);
+      refreshStatus();
+      poll = setInterval(refreshStatus, 1500);
+    }).catch(e => { $('runErr').textContent = '启动失败：'+e.message; });
+};
+
+$('rebootBtn').onclick = async () => {
+  const devs = state.devices.filter(s=>state.devicesChecked[s]);
+  if (!devs.length) { $('runErr').textContent = '请至少选择一台设备'; return; }
+  if (!await confirmUI(`确定要重启选中的 ${devs.length} 台设备吗？\n重启期间设备会短暂离线。`)) return;
+  $('runErr').textContent = '';
+  saveWifiPrefs(true);
+  api('reboot', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ serials: devs }) })
+    .then(r => {
+      if (r.error) throw new Error(r.error);
+      toast(`已下发重启：${devs.length} 台`, 'ok');
+      state.runningSerials = devs.slice();
+      if (poll) clearInterval(poll);
+      refreshStatus();
+      poll = setInterval(refreshStatus, 1500);
+    }).catch(e => { $('runErr').textContent = '启动重启失败：'+e.message; });
+};
+
+$('poweroffBtn').onclick = async () => {
+  const devs = state.devices.filter(s=>state.devicesChecked[s]);
+  if (!devs.length) { $('runErr').textContent = '请至少选择一台设备'; return; }
+  if (!await confirmUI(`确定要关闭选中的 ${devs.length} 台设备吗？`)) return;
+  $('runErr').textContent = '';
+  api('poweroff', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({ serials: devs }) })
+    .then(r => {
+      if (r.error) throw new Error(r.error);
+      state.runningSerials = devs.slice();
+      if (poll) clearInterval(poll);
+      refreshStatus();
+      poll = setInterval(refreshStatus, 1500);
+    }).catch(e => { $('runErr').textContent = '启动关机失败：'+e.message; });
+};
+
+// 拖入/选择 APK（上传到后端项目目录，支持任意路径的 APK）
+function uploadApk(file) {
+  if (!file || !/\.apk$/i.test(file.name)) { toast('请选择 .apk 文件', 'err'); return; }
+  const dz = $('dz');
+  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:#7dd3fc" id="upPct"></span>`;
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload_apk?name=' + encodeURIComponent(file.name));
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const pct = Math.round(e.loaded / e.total * 100);
+      const el = $('upPct'); if (el) el.textContent = pct + '%';
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      const r = JSON.parse(xhr.responseText);
+      if (!state.apks.includes(r.apk)) state.apks.unshift(r.apk);
+      const sel = $('apkSelect');
+      sel.innerHTML = state.apks.map(a => `<option value="${a}">${a}</option>`).join('');
+      sel.value = r.apk;
+      dz.innerHTML = `已上传：<b>${r.apk}</b><br><span style="font-size:11px;color:#4ade80">可点「并行安装」直接使用</span>`;
+      toast(`APK 已上传：${r.apk}`, 'ok');
+      autoFillFromApk(false);   // 上传完自动识别包名
+    } else {
+      dz.innerHTML = '上传失败（' + xhr.status + '）';
+      toast('APK 上传失败', 'err');
+    }
+  };
+  xhr.onerror = () => { dz.innerHTML = '上传失败'; toast('APK 上传失败', 'err'); };
+  xhr.send(file);
+}
+const dz = $('dz');
+dz.addEventListener('click', async () => {
+  if (window.showOpenFilePicker) {
+    const [h] = await window.showOpenFilePicker({ types:[{description:'APK',accept:{'application/vnd.android.package-archive':['.apk']}}] });
+    uploadApk(await h.getFile());
+  } else {
+    const input = document.createElement('input'); input.type='file'; input.accept='.apk';
+    input.onchange = () => { if (input.files[0]) uploadApk(input.files[0]); };
+    input.click();
+  }
+});
+['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
+['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
+dz.addEventListener('drop', e => {
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) uploadApk(f);
+});
+
+// fsa 数据包：状态显示 + zip 拖拽上传覆盖（对齐 APK 的做法）
+function refreshFsaStatus() {
+  api('fsa_status').then(d => {
+    const el = $('fsaStatus');
+    if (d.exists) {
+      el.innerHTML = `<span style="color:#4ade80">✔ 本地 fsa 已找到：${d.count} 个文件</span>` +
+        `　<span style="color:#94a3b8;font-size:11px">安装时自动推送到 /sdcard/aikit/esr/fsa</span>`;
+    } else {
+      el.innerHTML = `<span style="color:#eab308">⚠ 未找到本地 fsa 文件夹，安装时将跳过推送——请在下方导入</span>`;
+    }
+  }).catch(() => {});
+}
+function uploadFsa(file) {
+  if (!file || !/\.zip$/i.test(file.name)) { toast('请选择 fsa 文件夹或 .zip 文件', 'err'); return; }
+  const dz = $('fsaDz');
+  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:#7dd3fc" id="fsaUpPct"></span>`;
+  const xhr = new XMLHttpRequest();
+  xhr.open('POST', '/api/upload_fsa?name=' + encodeURIComponent(file.name));
+  xhr.upload.onprogress = e => {
+    if (e.lengthComputable) {
+      const el = $('fsaUpPct');
+      if (el) el.textContent = Math.round(e.loaded / e.total * 100) + '%';
+    }
+  };
+  xhr.onload = () => {
+    if (xhr.status === 200) {
+      const r = JSON.parse(xhr.responseText);
+      dz.innerHTML = `已导入：<b>${file.name}</b>（${r.files} 个文件，已覆盖本地 fsa）<br>` +
+        `<span style="font-size:11px;color:#4ade80">安装时将自动推送</span>`;
+      toast(`fsa 已导入：${r.files} 个文件`, 'ok');
+      refreshFsaStatus();
+    } else {
+      let msg = '上传失败（' + xhr.status + '）';
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (_) {}
+      dz.innerHTML = msg;
+      toast('fsa 导入失败：' + msg, 'err');
+    }
+  };
+  xhr.onerror = () => { dz.innerHTML = '上传失败'; toast('fsa 导入失败', 'err'); };
+  xhr.send(file);
+}
+
+// 文件夹直传：逐个文件 POST，首个文件触发后端清空旧 fsa（保证与本地完全一致）
+async function uploadFsaFolder(list, rootName) {
+  if (!list.length) { toast('文件夹为空', 'err'); return; }
+  const dz = $('fsaDz');
+  for (let i = 0; i < list.length; i++) {
+    const it = list[i];
+    dz.innerHTML = `<b>上传中：${it.rel}</b><br>` +
+      `<span style="font-size:11px;color:#7dd3fc">${i + 1} / ${list.length} 个文件</span>`;
+    const first = i === 0 ? '&first=1' : '';
+    try {
+      const r = await api('upload_fsa_file?rel=' + encodeURIComponent(it.rel) + first,
+                          { method: 'POST', body: it.file });
+      if (!r.ok) throw new Error(r.error || '上传失败');
+    } catch (err) {
+      dz.innerHTML = '上传失败：' + it.rel;
+      toast('fsa 导入失败：' + err.message, 'err');
+      return;
+    }
+  }
+  dz.innerHTML = `已导入文件夹：<b>${rootName}</b>（${list.length} 个文件，已覆盖本地 fsa）<br>` +
+    `<span style="font-size:11px;color:#4ade80">安装时将自动推送</span>`;
+  toast(`fsa 已导入：${list.length} 个文件`, 'ok');
+  refreshFsaStatus();
+}
+
+// 递归遍历拖入的文件夹（webkitGetAsEntry）
+function walkFsaEntry(entry, prefix, list) {
+  return new Promise(resolve => {
+    if (entry.isFile) {
+      entry.file(f => { list.push({ file: f, rel: prefix + entry.name }); resolve(); }, resolve);
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const batch = [];
+      const readNext = () => reader.readEntries(async ents => {
+        if (!ents.length) {
+          for (const en of batch) await walkFsaEntry(en, prefix + entry.name + '/', list);
+          resolve();
+        } else { batch.push(...ents); readNext(); }
+      }, resolve);
+      readNext();
+    } else resolve();
+  });
+}
+
+const fsaDz = $('fsaDz');
+fsaDz.addEventListener('click', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.webkitdirectory = true;   // 直接选择文件夹
+  input.onchange = () => {
+    const files = Array.from(input.files || []);
+    if (!files.length) return;
+    const rootName = files[0].webkitRelativePath.split('/')[0];
+    const list = files
+      .map(f => ({ file: f, rel: f.webkitRelativePath.split('/').slice(1).join('/') }))
+      .filter(x => x.rel && !/\.meta$/i.test(x.rel));
+    uploadFsaFolder(list, rootName);
+  };
+  input.click();
+});
+['dragenter','dragover'].forEach(ev => fsaDz.addEventListener(ev, e => { e.preventDefault(); fsaDz.classList.add('drag'); }));
+['dragleave','drop'].forEach(ev => fsaDz.addEventListener(ev, e => { e.preventDefault(); fsaDz.classList.remove('drag'); }));
+fsaDz.addEventListener('drop', async e => {
+  e.preventDefault(); fsaDz.classList.remove('drag');
+  const items = e.dataTransfer.items;
+  // 拖入的是文件夹 → 递归直传；拖入的是文件（.zip）→ 走 zip 流程
+  if (items && items.length && items[0].webkitGetAsEntry) {
+    const entry = items[0].webkitGetAsEntry();
+    if (entry && entry.isDirectory) {
+      const rootName = entry.name;
+      const list = [];
+      await walkFsaEntry(entry, '', list);
+      await uploadFsaFolder(
+        list.map(x => ({ file: x.file, rel: x.rel.split('/').slice(1).join('/') }))
+            .filter(x => x.rel && !/\.meta$/i.test(x.rel)),
+        rootName);
+      return;
+    }
+  }
+  const f = e.dataTransfer.files && e.dataTransfer.files[0];
+  if (f) uploadFsa(f);
+});
+refreshFsaStatus();
+
+// ---------- 已安装应用（只服务设备卡片上的下拉框 + 垃圾桶） ----------
+const appsState = { data: {} };   // serial -> { apps: [{pkg, apk}], error }
+
+function fetchApps(serial, done) {
+  api('apps?serial=' + encodeURIComponent(serial)).then(d => {
+    appsState.data[serial] = d.error
+      ? { apps: [], error: d.error, ts: Date.now() }
+      : { apps: d.apps || [], error: '', ts: Date.now() };
+  }).catch(e => {
+    appsState.data[serial] = { apps: [], error: '获取失败：' + e.message, ts: Date.now() };
+  }).finally(() => {
+    renderDevices();
+    if (typeof done === 'function') done();
+  });
+}
+
+// 设备卡片自动拉取：新设备立即拉，已有数据按 TTL 缓存，失败则短退避重试
+function syncCardApps() {
+  const now = Date.now();
+  state.devices.forEach(s => {
+    const d = appsState.data[s];
+    if (!d) { fetchApps(s); return; }
+    const age = now - (d.ts || 0);
+    if (d.error ? age > 15000 : age > 120000) fetchApps(s);
+  });
+}
+
+function waitUninstall(serial, timeoutMs = 40000) {
+  return new Promise(resolve => {
+    const t0 = Date.now();
+    const tick = () => {
+      api('status').then(d => {
+        const st = (d.devices || []).find(x => x.serial === serial);
+        if (st && st.state !== 'running') resolve(st.result === 'OK');
+        else if (Date.now() - t0 > timeoutMs) resolve(null);
+        else setTimeout(tick, 800);
+      }).catch(() => {
+        if (Date.now() - t0 > timeoutMs) resolve(null); else setTimeout(tick, 800);
+      });
+    };
+    setTimeout(tick, 600);
+  });
+}
+
+// 统一的卸载流程：确认 → 下发 → 轮询结果 → 刷新该设备应用列表
+async function doUninstall(serial, pkg, btn, busyText, idleText) {
+  if (!await confirmUI(`确定要卸载该应用吗？\n\n设备：${serial}\n应用：${pkg}`)) return false;
+  btn.disabled = true;
+  btn.textContent = busyText;
+  try {
+    const r = await api('uninstall', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pkg, serials: [serial] }) });
+    if (r.error) throw new Error(r.error);
+    const res = await waitUninstall(serial);
+    if (res === true) {
+      toast(`已卸载：${pkg}`, 'ok');
+      delete state.appSel[serial];
+      fetchApps(serial);
+      return true;
+    }
+    toast(res === null ? `卸载结果未知，请稍后刷新列表：${pkg}` : `卸载失败：${pkg}`, 'err');
+  } catch (e) {
+    toast('卸载失败：' + e.message, 'err');
+  }
+  btn.disabled = false;
+  btn.textContent = idleText;
+  return false;
+}
+
+// 设备卡片垃圾桶：卸载当前下拉框选中的应用
+function uninstallFromCard(btn) {
+  const serial = btn.dataset.sn;
+  const sel = document.querySelector(`.appsel[data-sn="${serial}"]`);
+  const pkg = sel ? sel.value : '';
+  if (!pkg) { toast('该设备没有可卸载的应用', 'err'); return; }
+  return doUninstall(serial, pkg, btn, '…', '🗑');
+}
+
+// ---------- logcat 查看（按设备实时刷新，2 秒轮询快照） ----------
+const logState = { serial: '', open: false, paused: false, timer: null, raw: [], shownLines: [] };
+
+function setLogDot(on) { $('logDot').classList.toggle('off', !on); }
+
+// 解析 logcat 行的级别字母（后端固定 -v time 格式，兼容 brief 格式兜底）
+function logLineLevel(line) {
+  let m = /^\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\.\d+\s+([VDIWEF])\//.exec(line);
+  if (!m) m = /^([VDIWEF])\/[^\s(]*\s*\(\s*\d+\)/.exec(line);
+  return m ? m[1].toLowerCase() : '';
+}
+
+// 当前过滤条件下的纯文本（复制/保存用；DOM 里每行是独立 div，textContent 不含换行）
+function visibleLogText() {
+  const kw = $('logFilter').value.trim().toLowerCase();
+  const lines = kw ? logState.raw.filter(l => l.toLowerCase().includes(kw)) : logState.raw;
+  return lines.join('\n');
+}
+
+// 追加若干行，每行一个 div，按级别着色（textContent 写入，不拼 HTML）
+function appendLogLines(lines) {
+  const frag = document.createDocumentFragment();
+  for (const line of lines) {
+    const d = document.createElement('div');
+    const lv = logLineLevel(line);
+    d.className = lv ? 'll lv-' + lv : 'll';
+    d.textContent = line === '' ? ' ' : line;
+    frag.appendChild(d);
+  }
+  $('logBody').appendChild(frag);
+}
+
+// 把 raw 行按关键字过滤后渲染进面板
+// reset=true 时整块重绘（换设备/换过滤条件/清屏）；否则仅当新内容以旧内容为前缀时追加增量，避免闪烁与选中丢失
+function renderLogBody(reset) {
+  const kw = $('logFilter').value.trim().toLowerCase();
+  const lines = kw ? logState.raw.filter(l => l.toLowerCase().includes(kw)) : logState.raw;
+  const body = $('logBody');
+  const prev = logState.shownLines;
+  const atBottom = body.scrollTop + body.clientHeight >= body.scrollHeight - 24;
+  const isAppend = !reset && prev.length <= lines.length &&
+    prev.every((l, i) => l === lines[i]);
+  if (isAppend) {
+    if (lines.length > prev.length) appendLogLines(lines.slice(prev.length));
+  } else {
+    body.textContent = '';
+    appendLogLines(lines);
+  }
+  logState.shownLines = lines;
+  if ($('logAutoScroll').checked && (reset || atBottom)) body.scrollTop = body.scrollHeight;
+}
+
+function fetchLog() {
+  if (!logState.serial) return;
+  let url = 'logcat?serial=' + encodeURIComponent(logState.serial) + '&lines=' + $('logLines').value;
+  const spec = $('logLevel').value;
+  if (spec) url += '&spec=' + encodeURIComponent(spec);
+  api(url).then(d => {
+    if (d.error) {
+      setLogDot(false);
+      $('logStat').textContent = d.error + (logState.paused ? '（已暂停）' : '');
+      return;
+    }
+    setLogDot(true);
+    logState.raw = d.lines || [];
+    const st = state.statusMap[logState.serial];
+    const installing = st && st.state === 'running';
+    let info;
+    if (!logState.raw.length && d.note) {
+      info = d.note;
+    } else {
+      info = `${logState.raw.length} 行 · ${new Date().toLocaleTimeString()}`
+        + (logState.paused ? ' · 已暂停' : '');
+    }
+    if (installing) info += ' · ⚠ 该设备正在安装（流程会清空日志缓冲）';
+    $('logStat').textContent = info;
+    renderLogBody(false);
+  }).catch(e => {
+    setLogDot(false);
+    $('logStat').textContent = '读取失败：' + e.message;
+  });
+}
+
+function openLog(serial) {
+  const switching = logState.serial !== serial;
+  logState.serial = serial;
+  logState.open = true;
+  if (switching) {
+    logState.raw = [];
+    logState.shownLines = [];
+    $('logBody').textContent = '';
+  }
+  $('logTitle').textContent = '设备日志 · ' + serial;
+  $('logPanel').classList.add('show');
+  fetchLog();
+  if (!logState.timer) logState.timer = setInterval(() => { if (!logState.paused) fetchLog(); }, 2000);
+}
+
+function closeLog() {
+  logState.open = false;
+  $('logPanel').classList.remove('show');
+  if (logState.timer) { clearInterval(logState.timer); logState.timer = null; }
+}
+
+$('logPauseBtn').onclick = () => {
+  logState.paused = !logState.paused;
+  const b = $('logPauseBtn');
+  b.textContent = logState.paused ? '▶ 继续' : '⏸ 暂停';
+  b.classList.toggle('on', logState.paused);
+  if (!logState.paused) fetchLog();
+  else $('logStat').textContent = logState.raw.length + ' 行 · 已暂停';
+};
+
+$('logClearViewBtn').onclick = () => {
+  logState.shownLines = [];
+  $('logBody').textContent = '';
+};
+
+$('logClearDevBtn').onclick = async () => {
+  if (!logState.serial) return;
+  if (!await confirmUI(`清空设备的 logcat 缓冲区？\n\n设备：${logState.serial}\n\n`
+      + `仅清空设备日志缓冲，不影响设备运行与已装应用。\n`
+      + `注意：若该设备正在执行安装流程（抓取 deviceId 时会清空并等待 heartbeat），\n`
+      + `此时清空可能导致 deviceId 采集失败（仅告警，不中断安装）。`)) return;
+  try {
+    const r = await api('logcat_clear', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial: logState.serial }) });
+    if (r.error || r.ok === false) throw new Error(r.error || '清空失败');
+    logState.raw = [];
+    logState.shownLines = [];
+    $('logBody').textContent = '';
+    $('logStat').textContent = '已清空设备缓冲';
+    toast('已清空设备 logcat 缓冲', 'ok');
+  } catch (e) { toast('清空失败：' + e.message, 'err'); }
+};
+
+$('logCopyBtn').onclick = async () => {
+  const text = visibleLogText();
+  if (!text) { toast('没有内容可复制', 'err'); return; }
+  try { await navigator.clipboard.writeText(text); toast('已复制日志', 'ok'); }
+  catch (e) { toast('复制失败，请手动选中复制', 'err'); }
+};
+
+$('logSaveBtn').onclick = () => {
+  const text = visibleLogText();
+  if (!text) { toast('没有内容可保存', 'err'); return; }
+  const ts = new Date().toISOString().replace(/[-:T]/g, '').slice(0, 14);
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type: 'text/plain;charset=utf-8' }));
+  a.download = `logcat_${(logState.serial || 'device').replace(/[^\w.-]/g, '_')}_${ts}.txt`;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+};
+
+$('logCloseBtn').onclick = closeLog;
+$('logFilter').addEventListener('input', () => renderLogBody(true));
+$('logLines').onchange = () => fetchLog();
+$('logLevel').onchange = () => { logState.shownLines = []; fetchLog(); };
+
+// ---------- ADB 终端（命令不带 adb 前缀，后端以参数列表执行，不经 shell） ----------
+const adbState = { hist: [], hp: -1, busy: false, listKey: null };
+// 会改动设备状态且不可撤销的命令，执行前二次确认
+const ADB_CONFIRM = /(^|\s)(reboot|uninstall|rm|wipe|factory|flash|format|sideload)\b/i;
+
+function adbPrint(cls, text) {
+  const box = $('adbOut');
+  const d = document.createElement('div');
+  d.className = cls;
+  d.textContent = text;
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+}
+
+// 设备下拉框跟随「④ 选择设备」的在线列表（列表没变就不重建，避免打断选择）
+function adbDevices() {
+  const sel = $('adbDev');
+  const devs = state.devices.slice();
+  const key = devs.join(',');
+  if (adbState.listKey === key) return;
+  const cur = sel.value;
+  adbState.listKey = key;
+  sel.innerHTML = (devs.length ? '' : '<option value="">(无在线设备)</option>')
+    + devs.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  if (devs.includes(cur)) sel.value = cur;
+  $('adbDevLabel').textContent = devs.length ? devs.length + ' 台在线' : '无在线设备';
+}
+
+async function runAdb(cmd) {
+  cmd = (cmd || '').trim();
+  if (!cmd) return;
+  if (adbState.busy) { toast('上一条命令还在执行，请稍候', 'err'); return; }
+  const serial = $('adbDev').value;
+  if (ADB_CONFIRM.test(cmd) &&
+      !await confirmUI(`确认在设备上执行这条命令？\n\n设备：${serial || '(未选择)'}\n命令：adb ${cmd}\n\n`
+        + `该命令会改动设备状态，且无法撤销。`)) return;
+  adbState.hist.push(cmd);
+  adbState.hp = -1;
+  adbPrint('adb-cmd', '$ adb ' + (serial ? '-s ' + serial + ' ' : '') + cmd);
+  adbState.busy = true;
+  const btn = $('adbRunBtn');
+  const t0 = Date.now();
+  btn.disabled = true; btn.textContent = '执行中…';
+  try {
+    const r = await api('adb', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial, cmd, timeout: 30 }) });
+    if (r.error) { adbPrint('adb-res bad', r.error); return; }
+    if (r.out) adbPrint('adb-res' + (r.rc !== 0 ? ' bad' : ''), r.out.replace(/[\r\n]+$/, ''));
+    else adbPrint('adb-meta', '(无输出)');
+    if (r.note) adbPrint('adb-meta', '⚠ ' + r.note);
+    adbPrint('adb-meta', 'rc=' + r.rc + ' · ' + ((Date.now() - t0) / 1000).toFixed(1) + 's'
+      + (r.truncated ? ' · 输出过长已截断' : ''));
+  } catch (e) {
+    adbPrint('adb-res bad', '执行失败：' + e.message);
+  } finally {
+    adbState.busy = false;
+    btn.disabled = false; btn.textContent = '执行';
+  }
+}
+
+function submitAdb() {
+  const v = $('adbCmd').value;
+  $('adbCmd').value = '';
+  runAdb(v);
+}
+$('adbRunBtn').onclick = submitAdb;
+$('adbCmd').addEventListener('keydown', e => {
+  if (e.key === 'Enter') { e.preventDefault(); submitAdb(); return; }
+  if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+    const h = adbState.hist;
+    if (!h.length) return;
+    e.preventDefault();
+    if (adbState.hp === -1) adbState.hp = h.length - 1;
+    else adbState.hp = Math.max(0, Math.min(h.length - 1,
+      adbState.hp + (e.key === 'ArrowUp' ? -1 : 1)));
+    $('adbCmd').value = h[adbState.hp];
+  }
+});
+$('adbQuick').addEventListener('click', e => {
+  const b = e.target.closest('button[data-cmd]');
+  if (b) runAdb(b.dataset.cmd);
+});
+$('adbClearBtn').onclick = () => { $('adbOut').textContent = ''; };
+adbDevices();
+
+init();
+refreshStatus();
+refreshWifi();
+setInterval(refreshDevices, 8000);
+setInterval(refreshStatus, 3000);
+setInterval(refreshWifi, 5000);
+</script>
+</body>
+</html>

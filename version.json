@@ -1,0 +1,9 @@
+{
+  "version": "202610131235",
+  "notes": "release 202610131235",
+  "files": {
+    "launcher.exe": "a9d1a2728ee2bd1d42bf2c01daa30e4a",
+    "web/server.py": "ab5cbb36fb9c8e9206b96c5155c89cc4",
+    "web/index.html": "b2c8324530420a1c8d13ed0e00c5222a"
+  }
+}
