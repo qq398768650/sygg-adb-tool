@@ -1,7 +1,6 @@
-# 启动前在线更新：比对远端 version.json，只下载有变化的文件
+﻿# 启动前在线更新：比对远端 version.json，只下载有变化的文件
 # 由 start.bat 调用；更新失败不阻断启动。
 $ErrorActionPreference = 'SilentlyContinue'
-try { [Console]::OutputEncoding = [Text.Encoding]::UTF8 } catch {}
 try { [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 } catch {}
 
 $root     = Split-Path -Parent $MyInvocation.MyCommand.Path

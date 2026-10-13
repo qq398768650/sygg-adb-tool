@@ -1,4 +1,4 @@
-# 一键发布：重建 launcher.exe -> 刷新 version.json -> 提交并推送
+﻿# 一键发布：重建 launcher.exe -> 刷新 version.json -> 提交并推送
 # 用法: 右键"使用 PowerShell 运行"，或在 PowerShell 里执行 .\release.ps1
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path

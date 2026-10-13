@@ -1,9 +1,8 @@
 @echo off
-chcp 65001 >nul
 setlocal
 cd /d "%~dp0"
 
-echo [build] ä» web\server.py é‡æ–°æ‰“åŒ… launcher.exe ...
+echo [build] ´Ó web\server.py ÖØĞÂ´ò°ü launcher.exe ...
 
 if exist "%~dp0launcher.exe.bak" del /f /q "%~dp0launcher.exe.bak"
 if exist "%~dp0launcher.exe" move /y "%~dp0launcher.exe" "%~dp0launcher.exe.bak" >nul
@@ -16,9 +15,9 @@ pyinstaller --onefile --name launcher ^
   --noconfirm "%~dp0web\server.py"
 
 if errorlevel 1 (
-    echo [build] æ‰“åŒ…å¤±è´¥ã€‚
+    echo [build] ´ò°üÊ§°Ü¡£
     exit /b 1
 )
 
 copy /y "%~dp0build_tmp\dist\launcher.exe" "%~dp0launcher.exe" >nul
-echo [build] å®Œæˆï¼š%~dp0launcher.exe
+echo [build] Íê³É£º%~dp0launcher.exe
