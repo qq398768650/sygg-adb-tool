@@ -172,10 +172,17 @@
   .modal .m-btn.ok:hover { background: #0284c7; }
   .modal .m-btn.cancel { background: #475569; color: #e2e8f0; }
   .modal .m-btn.cancel:hover { background: #334155; }
+  /* 版本 / 更新 */
+  .ver-tag { font-size: 12px; font-weight: 600; color: #94a3b8; background: #1e293b; border: 1px solid #334155; border-radius: 20px; padding: 2px 10px; margin-left: 10px; vertical-align: middle; cursor: pointer; }
+  .ver-tag:hover { color: #e2e8f0; border-color: #475569; }
+  .ver-tag.new { color: #4ade80; border-color: #22c55e; }
+  .ver-btn { font-size: 12px; font-weight: 500; color: #7dd3fc; background: transparent; border: 1px solid #334155; border-radius: 6px; padding: 3px 10px; margin-left: 8px; cursor: pointer; vertical-align: middle; }
+  .ver-btn:hover { background: #1e293b; }
+  .ver-btn:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
-  <h1>批量 ADB 安装工具</h1>
+  <h1>批量 ADB 安装工具<span class="ver-tag" id="verTag" title="点击检查更新">v…</span><button class="ver-btn" id="checkUpdateBtn">检查更新</button></h1>
   <div class="sub">拖入 APK / 填 WiFi → 勾选设备 → 一键并行安装（每台独立线程，互不影响）</div>
 
   <div class="cols">
@@ -399,6 +406,53 @@ let poll = null;
 
 function api(path, opt) {
   return fetch('/api/' + path, opt).then(r => r.json());
+}
+
+// 当前版本号
+function loadVersion() {
+  api('version').then(d => {
+    $('verTag').textContent = 'v' + (d && d.version ? d.version : '未知');
+  }).catch(() => { $('verTag').textContent = 'v未知'; });
+}
+
+// 检查更新 -> 有新版则询问并执行
+async function checkUpdate() {
+  const btn = $('checkUpdateBtn'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '检查中…';
+  try {
+    const d = await api('check_update');
+    if (!d.ok) { toast('检查更新失败：' + (d.error || '网络错误'), 'err', 4200); return; }
+    $('verTag').textContent = 'v' + (d.local || '未知');
+    $('verTag').classList.remove('new');
+    if (!d.has_update) { toast('已是最新版本 v' + d.local, 'ok'); return; }
+    $('verTag').classList.add('new');
+    if (!await confirmUI(`发现新版本 v${d.remote}（当前 v${d.local}）\n\n是否立即更新？\n网页更新后刷新即生效；主程序（launcher.exe）需重启才会替换。`)) return;
+    await doUpdate();
+  } catch (e) {
+    toast('检查更新失败：' + e, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
+}
+
+// 执行在线更新（调用后端 updater.ps1）
+async function doUpdate() {
+  const btn = $('checkUpdateBtn'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '更新中…';
+  try {
+    const d = await api('update', { method: 'POST' });
+    if (d.ok) {
+      toast('更新完成，页面即将刷新', 'ok', 5000);
+      loadVersion();
+      setTimeout(() => location.reload(), 1200);
+    } else {
+      toast('更新未完成：主程序可能被占用，请关闭窗口后用 start.bat 重启完成更新', 'err', 6500);
+    }
+  } catch (e) {
+    toast('更新失败：' + e, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 }
 
 // 记住上次填写的 WiFi（落盘到项目目录 prefs.json），刷新/重启后自动回填
@@ -1575,6 +1629,10 @@ $('adbQuick').addEventListener('click', e => {
 });
 $('adbClearBtn').onclick = () => { $('adbOut').textContent = ''; };
 adbDevices();
+
+$('checkUpdateBtn').onclick = checkUpdate;
+$('verTag').onclick = checkUpdate;
+loadVersion();
 
 init();
 refreshStatus();

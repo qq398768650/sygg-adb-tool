@@ -17,6 +17,8 @@ import shutil
 import struct
 import zipfile
 import urllib.parse
+import urllib.request
+import hashlib
 import subprocess
 import threading
 import webbrowser
@@ -35,6 +37,75 @@ else:
 
 HOST = "127.0.0.1"
 PORT = 8765
+
+# ---------- 版本 / 在线更新 ----------
+VERSION_FILE = os.path.join(PROJECT_DIR, "version.json")
+UPDATE_RAW = "https://raw.githubusercontent.com/qq398768650/sygg-adb-tool/main"
+
+
+def _md5_file(path):
+    h = hashlib.md5()
+    try:
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(1 << 20), b""):
+                h.update(chunk)
+        return h.hexdigest()
+    except Exception:
+        return ""
+
+
+def read_local_version():
+    try:
+        with open(VERSION_FILE, "r", encoding="utf-8-sig") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def fetch_remote_version(timeout=30):
+    """用 Windows 自带 curl.exe 拉取远端 version.json（.NET/urllib 在部分网络下不稳定）。"""
+    import tempfile
+    url = UPDATE_RAW + "/version.json?t=%d" % int(time.time())
+    tmp = os.path.join(tempfile.gettempdir(), "sygg_adb_version.json")
+    try:
+        os.remove(tmp)
+    except OSError:
+        pass
+    curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
+    if not os.path.isfile(curl):
+        curl = "curl.exe"
+    try:
+        subprocess.run([curl, "-fsSL", "--max-time", str(timeout), "-o", tmp, url],
+                       capture_output=True, timeout=timeout + 10)
+    except Exception as e:
+        raise RuntimeError("网络请求失败：%s" % e)
+    if not os.path.isfile(tmp):
+        raise RuntimeError("无法获取远端版本（网络不可用）")
+    try:
+        with open(tmp, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def run_updater_ps1():
+    """调用项目根目录的 updater.ps1 执行在线更新，返回 (ok, 文本输出)。"""
+    script = os.path.join(PROJECT_DIR, "updater.ps1")
+    if not os.path.isfile(script):
+        return False, "未找到 updater.ps1（请在项目根目录运行）"
+    try:
+        p = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+            cwd=PROJECT_DIR, capture_output=True, timeout=300,
+        )
+        out = (p.stdout or b"").decode("gbk", "replace") + (p.stderr or b"").decode("gbk", "replace")
+        return p.returncode == 0, out.strip()
+    except Exception as e:
+        return False, "更新脚本执行失败：%s" % e
 
 # ---------- APK 包名 / 启动 Activity 解析（纯 Python 解析二进制 AndroidManifest.xml，不依赖 aapt） ----------
 def _axml_strings(data, base):
@@ -1384,6 +1455,27 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/config":
             self._send(200, dict(DEFAULTS))
             return
+        if path == "/api/version":
+            lv = read_local_version()
+            self._send(200, {"version": lv.get("version", ""), "has_file": bool(lv)})
+            return
+        if path == "/api/check_update":
+            local = read_local_version().get("version", "")
+            try:
+                remote = fetch_remote_version()
+            except Exception as e:
+                self._send(200, {"ok": False, "local": local, "error": str(e)})
+                return
+            rv = remote.get("version", "")
+            changed = []
+            for rel, want in (remote.get("files", {}) or {}).items():
+                fp = os.path.join(PROJECT_DIR, rel.replace("/", os.sep))
+                if _md5_file(fp).lower() != str(want).lower():
+                    changed.append(rel)
+            self._send(200, {"ok": True, "local": local, "remote": rv,
+                             "has_update": (rv != local) or bool(changed),
+                             "changed": changed, "notes": remote.get("notes", "")})
+            return
         if path == "/api/apks":
             apks = [f for f in os.listdir(PROJECT_DIR)
                     if f.lower().endswith(".apk")]
@@ -1567,6 +1659,11 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, {"error": "not found"})
 
     def do_POST(self):
+        if self.path.split("?")[0] == "/api/update":
+            ok, out = run_updater_ps1()
+            self._send(200, {"ok": ok, "log": out,
+                             "version": read_local_version().get("version", "")})
+            return
         if self.path.split("?")[0] == "/api/upload_apk":
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length <= 0:

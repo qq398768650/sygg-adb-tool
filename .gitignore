@@ -19,10 +19,14 @@ __pycache__/
 
 # ==== 打包 / 备份 / 临时 ====
 build_tmp/
+dist/
+build/
+*.spec
 launcher.exe.bak
 *.tmp
 *.new
 *.log
+.version.remote.json
 
 # ==== 系统 ====
 Thumbs.db
