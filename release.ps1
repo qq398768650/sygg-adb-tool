@@ -39,6 +39,7 @@ $obj = [ordered]@{
         'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
         'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
         'updater.ps1'    = (Get-Md5 (Join-Path $root 'updater.ps1'))
+        'start.bat'      = (Get-Md5 (Join-Path $root 'start.bat'))
     }
 }
 [IO.File]::WriteAllText((Join-Path $root 'version.json'), ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
@@ -51,7 +52,7 @@ git push
 # 让 jsDelivr 立即刷新缓存（否则镜像可能最长 12 小时才更新）
 Write-Host '[release] 刷新 jsDelivr 缓存 ...' -ForegroundColor Cyan
 $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-foreach ($f in @('version.json','launcher.exe','web/server.py','web/index.html','updater.ps1')) {
+foreach ($f in @('version.json','launcher.exe','web/server.py','web/index.html','updater.ps1','start.bat')) {
     & $curl -s -o NUL "https://purge.jsdelivr.net/gh/qq398768650/sygg-adb-tool@main/$f" | Out-Null
 }
 

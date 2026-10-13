@@ -1956,16 +1956,67 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+def _free_port(port):
+    """若端口已被占用，结束占用它的进程（通常是本工具的旧实例），让新实例直接接管。"""
+    try:
+        out = subprocess.run(["netstat", "-ano", "-p", "tcp"],
+                             capture_output=True, timeout=10).stdout.decode("gbk", "replace")
+    except Exception:
+        return
+    pids = set()
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) >= 4 and parts[0].upper() == "TCP" and parts[3].upper() == "LISTENING":
+            if parts[1].endswith(":%d" % port):
+                pids.add(parts[-1])
+    for pid in pids:
+        if pid and pid != "0":
+            try:
+                subprocess.run(["taskkill", "/F", "/PID", pid], capture_output=True, timeout=10)
+            except Exception:
+                pass
+    if pids:
+        time.sleep(0.6)
+
+
+def _hide_console():
+    """隐藏控制台黑窗（仅在打包成 launcher.exe 时调用；命令行调试不受影响）。"""
+    try:
+        import ctypes
+        hwnd = ctypes.windll.kernel32.GetConsoleWindow()
+        if hwnd:
+            ctypes.windll.user32.ShowWindow(hwnd, 0)  # SW_HIDE
+    except Exception:
+        pass
+
+
 def main():
-    server = ThreadingHTTPServer((HOST, PORT), Handler)
+    _free_port(PORT)
+    try:
+        server = ThreadingHTTPServer((HOST, PORT), Handler)
+    except OSError:
+        time.sleep(0.8)
+        _free_port(PORT)
+        try:
+            server = ThreadingHTTPServer((HOST, PORT), Handler)
+        except OSError as e:
+            if getattr(sys, "frozen", False):
+                try:
+                    import ctypes
+                    ctypes.windll.user32.MessageBoxW(0, "无法占用端口 %d：%s" % (PORT, e),
+                                                     "启动失败", 0x10)
+                except Exception:
+                    pass
+            raise
     print(f"ADB      : {ADB}")
     print(f"Server   : http://{HOST}:{PORT}/")
-    print("Press Ctrl+C to stop.")
     threading.Timer(0.8, lambda: webbrowser.open(f"http://{HOST}:{PORT}/")).start()
+    if getattr(sys, "frozen", False):
+        _hide_console()
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopped.")
+        pass
 
 
 if __name__ == "__main__":
