@@ -239,6 +239,39 @@ def parse_apk_manifest(apk_path):
         return None, None
 
 
+def parse_apk_permissions(apk_path):
+    """从 APK 的 AndroidManifest.xml 读取声明的权限短名集合（如 READ_PHONE_STATE）。
+    用于只授予应用真正声明的权限，避免对未声明权限 pm grant 触发 SecurityException。
+    解析失败返回 None（调用方退回逐个尝试）。"""
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            data = z.read("AndroidManifest.xml")
+    except Exception:
+        return None
+    if len(data) < 8:
+        return None
+    try:
+        strings = None
+        perms = set()
+        pos = 8
+        while pos + 8 <= len(data):
+            t, _hs, sz = struct.unpack_from("<HHI", data, pos)
+            if sz <= 0:
+                break
+            if t == 0x0001:
+                strings = _axml_strings(data, pos)
+            elif t == 0x0102 and strings:
+                name, attrs = _axml_element(data, pos, strings)
+                if name in ("uses-permission", "uses-permission-sdk-23"):
+                    p = attrs.get("name") or ""
+                    if p.startswith("android.permission."):
+                        perms.add(p[len("android.permission."):])
+            pos += sz
+        return perms
+    except Exception:
+        return None
+
+
 # ---------- adb 定位 ----------
 def find_adb():
     p = shutil.which("adb")
@@ -407,13 +440,26 @@ APPOP_PERMS = [
 ]
 
 
-def grant_permissions(serial, pkg):
+# pm grant 失败时这些关键字表示"应用未声明/非运行时权限"，属于正常跳过而非错误
+_PERM_SKIP_MARKERS = (
+    "unknown permission", "not declared", "has not requested", "not requested",
+    "not a changeable permission", "does not have", "no such permission",
+    "is not a runtime permission", "not a runtime permission",
+)
+
+
+def grant_permissions(serial, pkg, declared=None):
     """静默授予权限：pm grant 运行时权限 -> appops 特殊权限 -> 电池优化白名单。
 
+    declared 为 APK 声明的权限短名集合（None 表示未知，退回逐个尝试）；
+    只对声明的权限执行 pm grant，避免未声明权限触发 SecurityException。
     返回 (ok, granted, unknown, failed)；仅运行时权限的失败计入 ok（appops 失败只记 WARN）。
     """
     granted, unknown, failed = [], [], []
-    for p in RUNTIME_PERMS:
+    perms = RUNTIME_PERMS
+    if declared is not None:
+        perms = [p for p in RUNTIME_PERMS if p in declared]
+    for p in perms:
         perm = f"android.permission.{p}"
         rc, out = adb_shell(serial, ["shell", "pm", "grant", pkg, perm], timeout=30)
         if rc == 0:
@@ -421,9 +467,9 @@ def grant_permissions(serial, pkg):
             log(serial, f"         [OK] {p}")
         else:
             low = (out or "").lower()
-            if "unknown permission" in low or "not declared" in low:
+            if any(m in low for m in _PERM_SKIP_MARKERS):
                 unknown.append(p)
-                log(serial, f"         [SKIP] {p}: 非 runtime 权限/未声明，跳过")
+                log(serial, f"         [SKIP] {p}: 应用未声明/非运行时权限，跳过")
             else:
                 failed.append(p)
                 log(serial, f"         [FAIL] {p}: {(out or '')[:200].strip()}")
@@ -455,6 +501,7 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         det_pkg, det_act = parse_apk_manifest(apk)
     except Exception:
         det_pkg, det_act = None, None
+    declared_perms = parse_apk_permissions(apk)
     pkg_diff = bool(det_pkg and det_pkg != pkg)
     if det_pkg:
         pkg = det_pkg
@@ -635,7 +682,7 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
 
         # ---- grant FIRST (before app launch, no permission popup) ----
         log(serial, "       Granting permissions...")
-        result_ok, _g, _u, _f = grant_permissions(serial, pkg)
+        result_ok, _g, _u, _f = grant_permissions(serial, pkg, declared_perms)
         step(serial, "grant", result_ok)
 
         # ---- launch first (clears notLaunched; needed before set-home persists) ----
@@ -727,8 +774,9 @@ def plain_install_one(serial, apk, grant_perms=False):
             if grant_perms:
                 det_pkg, _det_act = parse_apk_manifest(apk)
                 if det_pkg:
+                    declared_perms = parse_apk_permissions(apk)
                     log(serial, f"       Granting permissions to {det_pkg} ...")
-                    result_ok, _g, _u, _f = grant_permissions(serial, det_pkg)
+                    result_ok, _g, _u, _f = grant_permissions(serial, det_pkg, declared_perms)
                     step(serial, "grant", result_ok)
                 else:
                     log(serial, "       [WARN] 未能从 APK 识别包名，跳过授权。")
