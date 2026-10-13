@@ -1,11 +1,11 @@
 {
-    "version":  "202610131950",
-    "notes":  "发布流程完善：每次发布自动生成 GitHub Release 与 CHANGELOG 更新日志",
+    "version":  "0.1.6",
+    "notes":  "版本号改为语义化 v0.1.x；更新器与页面按数值比较版本",
     "files":  {
-                  "launcher.exe":  "3d4db32367fad48695d176fbd5e2a247",
-                  "web/server.py":  "2ad5d406b48d03005fe8ffc532edf420",
+                  "launcher.exe":  "53baec4805e520bfbccda75491aa231d",
+                  "web/server.py":  "2a9794432fa3d78193eb54430d295318",
                   "web/index.html":  "e6ce14eac6eecc7652a95b64dcb7f929",
-                  "updater.ps1":  "e5ffd0885524260c45c501c3f882d4ee",
+                  "updater.ps1":  "63ae2524aaed1b0dc9dd50754301f848",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53"
               }
 }

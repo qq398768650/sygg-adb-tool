@@ -72,6 +72,20 @@ def read_local_version():
         return {}
 
 
+def ver_tuple(v):
+    """把 'v0.1.5' / '0.1.5' 这类语义化版本转成可比较的元组 (0,1,5)。"""
+    nums = []
+    for part in str(v).lstrip("vV").split("."):
+        part = part.split("-")[0].split("+")[0].strip()
+        if part.isdigit():
+            nums.append(int(part))
+        else:
+            break
+    while len(nums) < 3:
+        nums.append(0)
+    return tuple(nums[:3])
+
+
 def fetch_remote_version(timeout=20):
     """用 Windows 自带 curl.exe 依次尝试各镜像拉取远端 version.json。"""
     import tempfile
@@ -1531,8 +1545,9 @@ class Handler(BaseHTTPRequestHandler):
                 fp = os.path.join(PROJECT_DIR, rel.replace("/", os.sep))
                 if _md5_file(fp).lower() != str(want).lower():
                     changed.append(rel)
+            has_update = (ver_tuple(rv) > ver_tuple(local)) or bool(changed)
             self._send(200, {"ok": True, "local": local, "remote": rv,
-                             "has_update": (rv != local) or bool(changed),
+                             "has_update": has_update,
                              "changed": changed, "notes": remote.get("notes", "")})
             return
         if path == "/api/apks":

@@ -1,7 +1,7 @@
 ﻿# 一键发布：重建 launcher.exe -> 刷新 version.json -> 追加更新日志 -> 提交并推送 -> 建 GitHub Release
 # 用法: 右键"使用 PowerShell 运行"，或在 PowerShell 里执行 .\release.ps1
 #       也可带说明：.\release.ps1 -Note "修复了 XXX"
-param([string]$Note = '')
+param([string]$Version = '', [string]$Note = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
@@ -34,7 +34,23 @@ foreach ($f in @('updater.ps1','release.ps1')) {
 
 function Get-Md5([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm MD5).Hash.ToLower() }
 
-$version = Get-Date -Format 'yyyyMMddHHmm'
+# 版本号：读当前 version.json，默认自动 +1（patch）；也可 -Version 指定或运行时输入
+$curVer = ''
+$vj = Join-Path $root 'version.json'
+if (Test-Path $vj) {
+    try { $curVer = ([IO.File]::ReadAllText($vj, [Text.Encoding]::UTF8) | ConvertFrom-Json).version } catch {}
+}
+$suggest = '0.1.0'
+if ($curVer -match '^v?(\d+)\.(\d+)\.(\d+)$') {
+    $suggest = "$($Matches[1]).$($Matches[2]).$([int]$Matches[3] + 1)"
+}
+if (-not $Version) {
+    Write-Host "[release] 版本号（回车用 $suggest）:" -ForegroundColor Cyan
+    $vi = Read-Host
+    if ($vi) { $Version = $vi.Trim() }
+}
+if (-not $Version) { $Version = $suggest }
+$version = $Version.TrimStart('v', 'V')
 
 # 本次更新说明：命令行 -Note 优先，否则交互输入，留空用默认
 if (-not $Note) {

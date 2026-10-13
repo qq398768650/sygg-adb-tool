@@ -24,6 +24,25 @@ function Get-Md5([string]$p) {
     return ''
 }
 
+# 语义化版本比较：'v0.1.6' / '0.1.6' -> (0,1,6)，按数值比较（不能按字符串比，否则 0.1.10 < 0.1.9）
+function Convert-Ver([string]$v) {
+    $v = "$v".TrimStart('v', 'V')
+    $nums = @()
+    foreach ($p in ($v -split '[.\-+]')) {
+        if ($p -match '^\d+$') { $nums += [int]$p } else { break }
+    }
+    while ($nums.Count -lt 3) { $nums += 0 }
+    return ,@($nums[0], $nums[1], $nums[2])
+}
+function Compare-Ver([string]$a, [string]$b) {
+    $x = Convert-Ver $a; $y = Convert-Ver $b
+    for ($i = 0; $i -lt 3; $i++) {
+        if ($x[$i] -lt $y[$i]) { return -1 }
+        if ($x[$i] -gt $y[$i]) { return 1 }
+    }
+    return 0
+}
+
 # 依次尝试各镜像把 $rel 下载到 $dest；若给了 $want，则要求 MD5 命中才返回 $true
 # （避免某个镜像缓存旧文件被误用）
 function Get-Remote([string]$rel, [string]$dest, [string]$want = '', [int]$maxTime = 20) {
@@ -52,7 +71,7 @@ foreach ($m in $mirrors) {
     try { $r = Get-Content -LiteralPath $t -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $r = $null }
     Remove-Item -LiteralPath $t -Force
     if (-not $r -or -not $r.version) { continue }
-    if (-not $remote -or "$($r.version)" -gt "$($remote.version)") { $remote = $r }
+    if (-not $remote -or (Compare-Ver $r.version $remote.version) -gt 0) { $remote = $r }
 }
 if (-not $remote) {
     Write-Host '[update] 无法获取远端版本（网络不可用），跳过更新。' -ForegroundColor Yellow
@@ -66,7 +85,7 @@ if (Test-Path -LiteralPath $localVer) {
 Write-Host "[update] 本地 $localVersion / 远端 $($remote.version)"
 
 # 本地不旧于远端则跳过，绝不把本地更新版本降级（镜像缓存滞后时尤其重要）
-if ($localVersion -and ("$($remote.version)" -le "$localVersion")) {
+if ($localVersion -and ((Compare-Ver $remote.version $localVersion) -le 0)) {
     Write-Host "[update] 已是最新版本 $localVersion" -ForegroundColor Green
     exit 0
 }
