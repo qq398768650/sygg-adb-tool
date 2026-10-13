@@ -31,7 +31,7 @@ $obj = [ordered]@{
         'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
     }
 }
-$obj | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $root 'version.json') -Encoding UTF8
+[IO.File]::WriteAllText((Join-Path $root 'version.json'), ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
 
 Write-Host '[release] 提交并推送 ...' -ForegroundColor Cyan
 git add -A

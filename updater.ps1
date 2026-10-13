@@ -70,5 +70,5 @@ foreach ($prop in $remote.files.PSObject.Properties) {
     }
 }
 
-try { $remote | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $localVer -Encoding UTF8 } catch {}
+try { [IO.File]::WriteAllText($localVer, ($remote | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false)) } catch {}
 Write-Host '[update] 更新完成。' -ForegroundColor Green
