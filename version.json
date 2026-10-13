@@ -1,8 +1,8 @@
 {
-    "version":  "202610131548",
-    "notes":  "release 202610131548",
+    "version":  "202610131950",
+    "notes":  "发布流程完善：每次发布自动生成 GitHub Release 与 CHANGELOG 更新日志",
     "files":  {
-                  "launcher.exe":  "38c40cf5a7d7821e0752dd23eb8d2a33",
+                  "launcher.exe":  "3d4db32367fad48695d176fbd5e2a247",
                   "web/server.py":  "2ad5d406b48d03005fe8ffc532edf420",
                   "web/index.html":  "e6ce14eac6eecc7652a95b64dcb7f929",
                   "updater.ps1":  "e5ffd0885524260c45c501c3f882d4ee",

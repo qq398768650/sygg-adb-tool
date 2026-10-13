@@ -1,8 +1,13 @@
-﻿# 一键发布：重建 launcher.exe -> 刷新 version.json -> 提交并推送
+﻿# 一键发布：重建 launcher.exe -> 刷新 version.json -> 追加更新日志 -> 提交并推送 -> 建 GitHub Release
 # 用法: 右键"使用 PowerShell 运行"，或在 PowerShell 里执行 .\release.ps1
+#       也可带说明：.\release.ps1 -Note "修复了 XXX"
+param([string]$Note = '')
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 Set-Location $root
+
+$repoSlug = 'qq398768650/sygg-adb-tool'
+$proxy    = 'http://127.0.0.1:7897'
 
 Write-Host '[release] 重新打包 launcher.exe ...' -ForegroundColor Cyan
 if (Test-Path launcher.exe.bak) { Remove-Item launcher.exe.bak -Force }
@@ -30,10 +35,19 @@ foreach ($f in @('updater.ps1','release.ps1')) {
 function Get-Md5([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm MD5).Hash.ToLower() }
 
 $version = Get-Date -Format 'yyyyMMddHHmm'
+
+# 本次更新说明：命令行 -Note 优先，否则交互输入，留空用默认
+if (-not $Note) {
+    Write-Host "[release] 本次更新说明（可留空，回车用默认）:" -ForegroundColor Cyan
+    $input = Read-Host
+    if ($input) { $Note = $input.Trim() }
+}
+if (-not $Note) { $Note = "版本 $version" }
+
 Write-Host "[release] 生成 version.json (版本 $version) ..." -ForegroundColor Cyan
 $obj = [ordered]@{
     version = $version
-    notes   = "release $version"
+    notes   = $Note
     files   = [ordered]@{
         'launcher.exe'   = (Get-Md5 (Join-Path $root 'launcher.exe'))
         'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
@@ -44,16 +58,42 @@ $obj = [ordered]@{
 }
 [IO.File]::WriteAllText((Join-Path $root 'version.json'), ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
 
+# 追加更新日志（新版本在最前）
+$clPath = Join-Path $root 'CHANGELOG.md'
+$entry  = "## v$version - $(Get-Date -Format 'yyyy-MM-dd')`r`n`r`n$Note`r`n`r`n"
+if (Test-Path $clPath) {
+    $old = ([IO.File]::ReadAllText($clPath, [Text.Encoding]::UTF8)).TrimStart([char]0xFEFF)
+    $idx = $old.IndexOf('## ')
+    if ($idx -ge 0) { $new = $old.Substring(0, $idx) + $entry + $old.Substring($idx) }
+    else            { $new = $old.TrimEnd() + "`r`n`r`n" + $entry }
+} else {
+    $new = "# 更新日志`r`n`r`n" + $entry
+}
+[IO.File]::WriteAllText($clPath, $new, (New-Object Text.UTF8Encoding $false))
+
 Write-Host '[release] 提交并推送 ...' -ForegroundColor Cyan
 git add -A
 git commit -m "release $version"
 git push
 
+# 创建 GitHub Release（发布信息 + 更新日志），走 Clash 代理
+Write-Host '[release] 创建 GitHub Release ...' -ForegroundColor Cyan
+$env:HTTPS_PROXY = $proxy
+$env:HTTP_PROXY  = $proxy
+$tag     = "v$version"
+$relBody = "$Note`r`n`r`n### 文件`r`n" + (($obj.files.GetEnumerator() | ForEach-Object { "- ``$($_.Key)`` — ``$($_.Value)``" }) -join "`r`n")
+$relBody += "`r`n`r`n> 客户端无需手动下载，运行 ``start.bat`` 会自动更新到本版本。"
+$prevEap = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+& gh release create $tag --repo $repoSlug --title $tag --notes $relBody 2>&1 | Out-Host
+if ($LASTEXITCODE -ne 0) { Write-Host '[release] 创建 Release 失败（检查 Clash/网络后可用 gh release create 重试）' -ForegroundColor Yellow }
+$ErrorActionPreference = $prevEap
+
 # 让 jsDelivr 立即刷新缓存（否则镜像可能最长 12 小时才更新）
 Write-Host '[release] 刷新 jsDelivr 缓存 ...' -ForegroundColor Cyan
 $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-foreach ($f in @('version.json','launcher.exe','web/server.py','web/index.html','updater.ps1','start.bat')) {
-    & $curl -s -o NUL "https://purge.jsdelivr.net/gh/qq398768650/sygg-adb-tool@main/$f" | Out-Null
+foreach ($f in @('version.json','CHANGELOG.md','launcher.exe','web/server.py','web/index.html','updater.ps1','start.bat')) {
+    & $curl -s -o NUL "https://purge.jsdelivr.net/gh/$repoSlug@main/$f" | Out-Null
 }
 
 Write-Host "[release] 完成，已发布版本 $version" -ForegroundColor Green
