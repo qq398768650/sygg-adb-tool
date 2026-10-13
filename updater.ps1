@@ -6,26 +6,42 @@ $ErrorActionPreference = 'SilentlyContinue'
 $root     = Split-Path -Parent $MyInvocation.MyCommand.Path
 $repo     = 'qq398768650/sygg-adb-tool'
 $branch   = 'main'
-$base     = "https://raw.githubusercontent.com/$repo/$branch"
 $localVer = Join-Path $root 'version.json'
 $curl     = Join-Path $env:SystemRoot 'System32\curl.exe'
 if (-not (Test-Path -LiteralPath $curl)) { $curl = 'curl.exe' }
+
+# 多个下载源，逐个尝试（GitHub 直连在国内常被墙，用镜像兜底）
+$mirrors = @(
+    "https://ghfast.top/https://raw.githubusercontent.com/$repo/$branch",
+    "https://gh-proxy.com/https://raw.githubusercontent.com/$repo/$branch",
+    "https://gcore.jsdelivr.net/gh/$repo@$branch",
+    "https://cdn.jsdelivr.net/gh/$repo@$branch",
+    "https://raw.githubusercontent.com/$repo/$branch"
+)
 
 function Get-Md5([string]$p) {
     if (Test-Path -LiteralPath $p) { return (Get-FileHash -LiteralPath $p -Algorithm MD5).Hash.ToLower() }
     return ''
 }
 
+# 依次尝试各镜像把 $rel 下载到 $dest，成功返回 $true
+function Get-Remote([string]$rel, [string]$dest, [int]$maxTime = 20) {
+    foreach ($m in $mirrors) {
+        & $curl -fsSL --connect-timeout 5 --max-time $maxTime -o $dest "$m/$rel" 2>$null | Out-Null
+        if ((Test-Path -LiteralPath $dest) -and (Get-Item -LiteralPath $dest).Length -gt 0) { return $true }
+    }
+    return $false
+}
+
 Write-Host '[update] 检查最新版本...' -ForegroundColor Cyan
 $verTmp = Join-Path $root '.version.remote.json'
-& $curl -fsSL --max-time 30 -o $verTmp "$base/version.json?t=$([DateTime]::Now.Ticks)" 2>$null | Out-Null
 $remote = $null
-if ((Test-Path -LiteralPath $verTmp) -and (Get-Item $verTmp).Length -gt 0) {
+if (Get-Remote 'version.json' $verTmp 8) {
     try { $remote = Get-Content -LiteralPath $verTmp -Raw -Encoding UTF8 | ConvertFrom-Json } catch {}
 }
 Remove-Item -LiteralPath $verTmp -Force
 if (-not $remote) {
-    Write-Host '[update] 无法获取远端版本，跳过更新。' -ForegroundColor Yellow
+    Write-Host '[update] 无法获取远端版本（网络不可用），跳过更新。' -ForegroundColor Yellow
     exit 0
 }
 
@@ -35,7 +51,6 @@ if (Test-Path -LiteralPath $localVer) {
 }
 Write-Host "[update] 本地 $localVersion / 远端 $($remote.version)"
 
-$bust     = "?v=$($remote.version)"
 $failed   = $false
 $changed  = $false
 $deferred = $false
@@ -52,9 +67,7 @@ foreach ($prop in $remote.files.PSObject.Properties) {
 
     $tmp = "$target.new"
     Write-Host "  [下载] $rel" -ForegroundColor Cyan
-    & $curl -fsSL --max-time 180 -o $tmp "$base/$rel$bust" 2>$null | Out-Null
-
-    if (-not (Test-Path -LiteralPath $tmp) -or (Get-Item $tmp).Length -eq 0) {
+    if (-not (Get-Remote $rel $tmp 180)) {
         Write-Host "  [失败] $rel 下载失败" -ForegroundColor Red
         Remove-Item -LiteralPath $tmp -Force
         $failed = $true

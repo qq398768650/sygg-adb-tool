@@ -173,16 +173,24 @@
   .modal .m-btn.cancel { background: #475569; color: #e2e8f0; }
   .modal .m-btn.cancel:hover { background: #334155; }
   /* 版本 / 更新 */
-  .ver-tag { font-size: 12px; font-weight: 600; color: #94a3b8; background: #1e293b; border: 1px solid #334155; border-radius: 20px; padding: 2px 10px; margin-left: 10px; vertical-align: middle; cursor: pointer; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+  .topbar-right { display: flex; align-items: center; gap: 8px; }
+  .ver-tag { font-size: 12px; font-weight: 600; color: #94a3b8; background: #1e293b; border: 1px solid #334155; border-radius: 20px; padding: 2px 10px; margin-left: 0; vertical-align: middle; cursor: pointer; }
   .ver-tag:hover { color: #e2e8f0; border-color: #475569; }
   .ver-tag.new { color: #4ade80; border-color: #22c55e; }
-  .ver-btn { font-size: 12px; font-weight: 500; color: #7dd3fc; background: transparent; border: 1px solid #334155; border-radius: 6px; padding: 3px 10px; margin-left: 8px; cursor: pointer; vertical-align: middle; }
+  .ver-btn { font-size: 12px; font-weight: 500; color: #7dd3fc; background: transparent; border: 1px solid #334155; border-radius: 6px; padding: 3px 10px; margin-left: 0; cursor: pointer; vertical-align: middle; }
   .ver-btn:hover { background: #1e293b; }
   .ver-btn:disabled { opacity: .5; cursor: default; }
 </style>
 </head>
 <body>
-  <h1>批量 ADB 安装工具<span class="ver-tag" id="verTag" title="点击检查更新">v…</span><button class="ver-btn" id="checkUpdateBtn">检查更新</button></h1>
+  <div class="topbar">
+    <h1>批量 ADB 安装工具</h1>
+    <div class="topbar-right">
+      <span class="ver-tag" id="verTag" title="点击检查更新">v…</span>
+      <button class="ver-btn" id="checkUpdateBtn">检查更新</button>
+    </div>
+  </div>
   <div class="sub">拖入 APK / 填 WiFi → 勾选设备 → 一键并行安装（每台独立线程，互不影响）</div>
 
   <div class="cols">

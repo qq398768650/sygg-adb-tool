@@ -1,9 +1,10 @@
 {
-    "version":  "202610131253",
-    "notes":  "release 202610131253",
+    "version":  "202610131312",
+    "notes":  "release 202610131312",
     "files":  {
-                  "launcher.exe":  "9eca6b47ce3d7944c83229517cbc67ab",
-                  "web/server.py":  "649bc03cf990915b9ab36c7ad36cb471",
-                  "web/index.html":  "5bae3d86a12c2154b56c77e3966473af"
+                  "launcher.exe":  "9d386dccfaaccd1404b02d61f31dd090",
+                  "web/server.py":  "6b2c678bc6e116715f7107ec165250df",
+                  "web/index.html":  "e6ce14eac6eecc7652a95b64dcb7f929",
+                  "updater.ps1":  "e4972067949a8799c93fdec51847cd8c"
               }
 }

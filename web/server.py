@@ -40,7 +40,16 @@ PORT = 8765
 
 # ---------- 版本 / 在线更新 ----------
 VERSION_FILE = os.path.join(PROJECT_DIR, "version.json")
-UPDATE_RAW = "https://raw.githubusercontent.com/qq398768650/sygg-adb-tool/main"
+UPDATE_REPO = "qq398768650/sygg-adb-tool"
+UPDATE_BRANCH = "main"
+# 多个下载源，逐个尝试（GitHub 直连在国内常被墙，用镜像兜底）
+UPDATE_MIRRORS = [
+    "https://ghfast.top/https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
+    "https://gh-proxy.com/https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
+    "https://gcore.jsdelivr.net/gh/%s@%s" % (UPDATE_REPO, UPDATE_BRANCH),
+    "https://cdn.jsdelivr.net/gh/%s@%s" % (UPDATE_REPO, UPDATE_BRANCH),
+    "https://raw.githubusercontent.com/%s/%s" % (UPDATE_REPO, UPDATE_BRANCH),
+]
 
 
 def _md5_file(path):
@@ -63,33 +72,35 @@ def read_local_version():
         return {}
 
 
-def fetch_remote_version(timeout=30):
-    """用 Windows 自带 curl.exe 拉取远端 version.json（.NET/urllib 在部分网络下不稳定）。"""
+def fetch_remote_version(timeout=20):
+    """用 Windows 自带 curl.exe 依次尝试各镜像拉取远端 version.json。"""
     import tempfile
-    url = UPDATE_RAW + "/version.json?t=%d" % int(time.time())
     tmp = os.path.join(tempfile.gettempdir(), "sygg_adb_version.json")
-    try:
-        os.remove(tmp)
-    except OSError:
-        pass
     curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
     if not os.path.isfile(curl):
         curl = "curl.exe"
-    try:
-        subprocess.run([curl, "-fsSL", "--max-time", str(timeout), "-o", tmp, url],
-                       capture_output=True, timeout=timeout + 10)
-    except Exception as e:
-        raise RuntimeError("网络请求失败：%s" % e)
-    if not os.path.isfile(tmp):
-        raise RuntimeError("无法获取远端版本（网络不可用）")
-    try:
-        with open(tmp, "r", encoding="utf-8-sig") as f:
-            return json.load(f)
-    finally:
+    last_err = "网络不可用"
+    for base in UPDATE_MIRRORS:
         try:
             os.remove(tmp)
         except OSError:
             pass
+        try:
+            subprocess.run([curl, "-fsSL", "--connect-timeout", "5", "--max-time", str(timeout),
+                            "-o", tmp, base + "/version.json"],
+                           capture_output=True, timeout=timeout + 10)
+        except Exception as e:
+            last_err = str(e)
+            continue
+        if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
+            try:
+                with open(tmp, "r", encoding="utf-8-sig") as f:
+                    return json.load(f)
+            except Exception as e:
+                last_err = str(e)
+        else:
+            last_err = "镜像无响应"
+    raise RuntimeError("无法获取远端版本：%s" % last_err)
 
 
 def run_updater_ps1():
