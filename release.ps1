@@ -9,14 +9,21 @@ if (Test-Path launcher.exe.bak) { Remove-Item launcher.exe.bak -Force }
 if (Test-Path launcher.exe) { Move-Item launcher.exe launcher.exe.bak -Force }
 if (Test-Path build_tmp) { Remove-Item build_tmp -Recurse -Force }
 
-pyinstaller --onefile --name launcher `
-    --distpath "$root\build_tmp\dist" `
-    --workpath "$root\build_tmp\build" `
-    --specpath "$root\build_tmp" `
-    --noconfirm "$root\web\server.py" | Out-Null
-if ($LASTEXITCODE -ne 0) { throw 'pyinstaller 打包失败' }
+$pyArgs = @('--onefile','--name','launcher',
+    '--distpath',"$root\build_tmp\dist",
+    '--workpath',"$root\build_tmp\build",
+    '--specpath',"$root\build_tmp",
+    '--noconfirm',"$root\web\server.py")
+$built = $false
+try { python -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
+if (-not $built) { pyinstaller @pyArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'pyinstaller 打包失败' } }
 
 Copy-Item "$root\build_tmp\dist\launcher.exe" "$root\launcher.exe" -Force
+
+# 确保 updater.ps1 带 UTF-8 BOM（编辑器保存常会丢 BOM，Windows PowerShell 5.1 无 BOM 会解析中文报错）
+$upd = Join-Path $root 'updater.ps1'
+$utf8 = New-Object Text.UTF8Encoding $true
+[IO.File]::WriteAllText($upd, ([IO.File]::ReadAllText($upd, [Text.Encoding]::UTF8)), $utf8)
 
 function Get-Md5([string]$p) { (Get-FileHash -LiteralPath $p -Algorithm MD5).Hash.ToLower() }
 
