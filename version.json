@@ -1,11 +1,11 @@
 {
-    "version":  "0.1.7",
-    "notes":  "修复更新误判：只认语义化版本号，镜像缓存的旧时间戳版本不再被当成最高版本；移除缓存滞后的 gcore 镜像",
-    "files":  {
-                  "launcher.exe":  "7e438fa2510dc97a0c365c2efe828d29",
-                  "web/server.py":  "6ed6ce1d8c50ee7afd41ddba1ec2becc",
-                  "web/index.html":  "e6ce14eac6eecc7652a95b64dcb7f929",
-                  "updater.ps1":  "0a79f07ed902f654b44daf6368418695",
-                  "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53"
-              }
+  "version": "0.1.8-beta",
+  "notes": "新增蓝牙模块：扫描蓝牙设备 + 自动配对（UI 自动化，主要适配蓝牙耳机）。beta 版，尚未真机验证。",
+  "files": {
+    "launcher.exe": "1aec9b00eb3c0f0ca69d914f629bf6c4",
+    "web/server.py": "7a2634501f570e1b15e04e6bbbf28b20",
+    "web/index.html": "26dea19ebdf16a7ec9549634d3368fc6",
+    "updater.ps1": "0a79f07ed902f654b44daf6368418695",
+    "start.bat": "7fb836886612fbe6af71f1b3c18fdd53"
+  }
 }
