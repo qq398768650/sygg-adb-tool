@@ -1,18 +1,11 @@
 {
-    "version":  "0.1.8",
-    "notes":  "新增 Scrcpy 投屏（内置精简版 3.3.4，约 9.5MB）：设备卡片一键投屏；更新器会把 scrcpy/ 一并下发，老客户端更新时自动补齐",
-    "files":  {
-                  "launcher.exe":  "b9c7842fc0e2ec35880c084f5308ed38",
-                  "web/server.py":  "a5b813b81080add9f68cc7166e95f30c",
-                  "web/index.html":  "b5884cbce3addf836de46581cf9df469",
-                  "updater.ps1":  "0a79f07ed902f654b44daf6368418695",
-                  "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
-                  "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
-                  "scrcpy/avformat-61.dll":  "5b977bb2cc8238e23130e3e009c77e66",
-                  "scrcpy/avutil-59.dll":  "fb69b85010e1d2bfb1b3ff4cef1d5f90",
-                  "scrcpy/scrcpy.exe":  "b462d800ba714e8e301aa0a6b8dceed8",
-                  "scrcpy/scrcpy-server":  "9153cfe86c4cac296581d022889683af",
-                  "scrcpy/SDL2.dll":  "43b0e7ab01de96ccab97458135f63386",
-                  "scrcpy/swresample-5.dll":  "f337a218595497e1c791a0d63bc728e3"
-              }
+  "version": "0.1.8-beta",
+  "notes": "新增蓝牙模块：扫描蓝牙设备 + 自动配对（UI 自动化，主要适配蓝牙耳机）。beta 版，尚未真机验证。",
+  "files": {
+    "launcher.exe": "1aec9b00eb3c0f0ca69d914f629bf6c4",
+    "web/server.py": "7a2634501f570e1b15e04e6bbbf28b20",
+    "web/index.html": "26dea19ebdf16a7ec9549634d3368fc6",
+    "updater.ps1": "0a79f07ed902f654b44daf6368418695",
+    "start.bat": "7fb836886612fbe6af71f1b3c18fdd53"
+  }
 }
