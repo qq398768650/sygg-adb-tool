@@ -1968,23 +1968,36 @@ class Handler(BaseHTTPRequestHandler):
                 return
             new = os.path.join(PROJECT_DIR, "launcher.exe.new")
             upd = os.path.join(PROJECT_DIR, "updater.ps1")
-            ps = (
-                "Start-Sleep -Seconds 1; "
-                "Stop-Process -Name launcher -Force -ErrorAction SilentlyContinue; "
-                "$new='%s'; for($i=0;$i -lt 120;$i++){ if(-not (Test-Path -LiteralPath $new)){break}; Start-Sleep -Milliseconds 500 }; "
-                "Start-Sleep -Milliseconds 600; "
-                "if(Test-Path -LiteralPath '%s'){ & powershell -NoProfile -ExecutionPolicy Bypass -File '%s' }; "
-                "Start-Process -FilePath '%s' -WindowStyle Hidden"
-            ) % (new.replace("'", "''"), upd.replace("'", "''"),
-                 upd.replace("'", "''"), exe.replace("'", "''"))
+            helper = os.path.join(PROJECT_DIR, "_restart_helper.ps1")
+            def _q(p):
+                return p.replace("'", "''")
+            script = (
+                "$ErrorActionPreference = 'SilentlyContinue'\r\n"
+                "Start-Sleep -Seconds 1\r\n"
+                "Stop-Process -Name launcher -Force\r\n"
+                "$new = '%s'\r\n"
+                "for ($i=0; $i -lt 120; $i++) { if (-not (Test-Path -LiteralPath $new)) { break }; Start-Sleep -Milliseconds 500 }\r\n"
+                "Start-Sleep -Milliseconds 600\r\n"
+                "$upd = '%s'\r\n"
+                "if (Test-Path -LiteralPath $upd) { & powershell -NoProfile -ExecutionPolicy Bypass -File $upd }\r\n"
+                "Start-Process -FilePath '%s' -WindowStyle Hidden\r\n"
+                "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force\r\n"
+            ) % (_q(new), _q(upd), _q(exe))
             try:
-                subprocess.Popen(["powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command", ps],
-                                 creationflags=0x00000008)   # DETACHED_PROCESS
+                with open(helper, "w", encoding="utf-8-sig") as f:
+                    f.write(script)
+                # 用 cmd start 拉起，进程完全脱离本进程；直接 Popen 的子进程会随本进程退出一起被杀
+                subprocess.Popen(
+                    ["cmd", "/c", "start", "", "/min", "powershell",
+                     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", helper],
+                    creationflags=0x08000000,
+                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
             except Exception as e:
                 self._send(500, {"ok": False, "error": str(e)})
                 return
             self._send(200, {"ok": True})
-            threading.Timer(0.6, lambda: os._exit(0)).start()
+            threading.Timer(0.8, lambda: os._exit(0)).start()
             return
         if self.path.split("?")[0] == "/api/upload_apk":
             length = int(self.headers.get("Content-Length", 0) or 0)

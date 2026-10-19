@@ -1,9 +1,9 @@
 {
-    "version":  "0.1.12",
-    "notes":  "修复页面更新后版本号不变：主程序被占用时自动重启生效，不再误报「更新完成」；server.py 未变时跳过重打包",
+    "version":  "0.1.13",
+    "notes":  "修复更新后版本不生效：主程序被占用时提示「重启后生效」并自动重启；重启助手改为独立进程拉起（原先会随旧进程一起被杀）；web/server.py 未变时不再重打包 launcher.exe",
     "files":  {
-                  "launcher.exe":  "5038be0e229f155e03b682b46da84897",
-                  "web/server.py":  "1ba802745f20dfbba335d30667354c30",
+                  "launcher.exe":  "3b6c46f4388885d4f61db6b4dd7c39dd",
+                  "web/server.py":  "6ba6cd74409a72a357cd4018dfc84f47",
                   "web/index.html":  "15aff2753462af28239b5c9df47b8a7f",
                   "updater.ps1":  "5254cc915deac8f77ba5542427aa910f",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",

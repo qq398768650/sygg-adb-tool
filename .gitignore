@@ -33,3 +33,5 @@ launcher.exe.bak
 Thumbs.db
 desktop.ini
 .DS_Store
+
+_restart_helper.ps1
