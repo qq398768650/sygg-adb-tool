@@ -18,6 +18,10 @@ __pycache__/
 # ==== 工作笔记（不上传） ====
 .workbuddy/
 
+# ==== 更新器运行期产物 ====
+.update.progress.json
+launcher.exe.new
+
 # ==== 打包 / 备份 / 临时 ====
 build_tmp/
 dist/
