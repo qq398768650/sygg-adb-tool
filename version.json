@@ -1,10 +1,10 @@
 {
-    "version":  "0.1.19",
-    "notes":  "界面重设计：OLED 控制台风格、标题图标、步骤徽标、图标全换 inline SVG、设备卡与日志面板重做",
+    "version":  "0.1.20",
+    "notes":  "新增浅色皮肤，右上角一键切换（记忆上次选择）；深色仍为默认",
     "files":  {
                   "launcher.exe":  "99b0b1569663d99e30c67e1ce67d685c",
                   "web/server.py":  "560ec9fccf7053e9cce0a0b752b94ea8",
-                  "web/index.html":  "4e81722900df450bdb5df06a65b62505",
+                  "web/index.html":  "d73f06047b09be4756829341572998fa",
                   "updater.ps1":  "a078d6e25a42af1e821e5e7fabf41795",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
                   "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",

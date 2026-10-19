@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -28,6 +28,7 @@
     --mono: ui-monospace, "JetBrains Mono", "Cascadia Mono", Consolas, "Courier New", monospace;
     --shadow:0 16px 40px -28px #000;
     --ring:0 0 0 3px rgba(34,197,94,.2);
+    color-scheme:dark;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { min-height: 100%; }
@@ -393,7 +394,154 @@
   .modal .m-btn.cancel{ background:transparent; border-color:var(--line-2); color:#CBD5E1; }
   .modal .m-btn.cancel:hover{ background:rgba(148,163,184,.1); color:#fff; }
 
+  .theme-btn{
+    display:inline-flex; align-items:center; justify-content:center;
+    width:32px; height:27px; border-radius:6px; cursor:pointer;
+    background:#0D1624; border:1px solid var(--line-2); color:#CBD5E1;
+    transition:.16s;
+  }
+  .theme-btn:hover{ color:#fff; border-color:#3E5070; background:rgba(148,163,184,.08); }
+  .theme-btn svg{ width:15px; height:15px; display:block; }
+  /* ============ 浅色皮肤 ============ */
+  html[data-theme="light"]{
+    --bg:#EEF2F7;
+    --card:#FFFFFF;
+    --card-2:#F7FAFC;
+    --line:#E2E8F0;
+    --line-2:#CBD5E1;
+    --text:#0F172A;
+    --muted:#475569;
+    --dim:#8A99AD;
+    --accent:#16A34A;
+    --accent-2:#15803D;
+    --accent-ink:#FFFFFF;
+    --info:#0369A1;
+    --warn:#B45309;
+    --err:#DC2626;
+    --violet:#6D28D9;
+    --shadow:0 18px 40px -30px rgba(15,23,42,.45);
+    --ring:0 0 0 3px rgba(22,163,74,.18);
+    color-scheme:light;
+  }
+  html[data-theme="light"] body{
+    background-color:#EEF2F7;
+    background-image:
+      radial-gradient(1000px 460px at 10% -12%, rgba(22,163,74,.09), transparent 62%),
+      radial-gradient(900px 420px at 100% -4%, rgba(3,105,161,.07), transparent 58%);
+  }
+  html[data-theme="light"] ::selection{ background:rgba(22,163,74,.18); }
+  html[data-theme="light"] ::-webkit-scrollbar-thumb{ background:#B8C4D4; }
+  html[data-theme="light"] ::-webkit-scrollbar-thumb:hover{ background:#93A3B8; }
+  html[data-theme="light"] .topbar{ background:rgba(238,242,247,.9); border-bottom:1px solid var(--line); }
+  html[data-theme="light"] .logo{ box-shadow:0 8px 18px -12px rgba(22,163,74,.6); }
+  html[data-theme="light"] .ver-tag{ color:#334155; background:#FFFFFF; border-color:var(--line-2); }
+  html[data-theme="light"] .ver-tag:hover{ color:#0F172A; border-color:#94A3B8; }
+  html[data-theme="light"] .ver-tag.new{ color:#15803D; border-color:rgba(22,163,74,.45); background:rgba(22,163,74,.08); }
+  html[data-theme="light"] .ver-btn{ color:#334155; background:#FFFFFF; border-color:var(--line-2); }
+  html[data-theme="light"] .ver-btn:hover{ color:#0F172A; background:#F1F5F9; border-color:#94A3B8; }
+  html[data-theme="light"] .theme-btn{ color:#475569; background:#FFFFFF; border-color:var(--line-2); }
+  html[data-theme="light"] .theme-btn:hover{ color:#0F172A; background:#F1F5F9; border-color:#94A3B8; }
+  html[data-theme="light"] .panel{ background:#FFFFFF; }
+  html[data-theme="light"] .panel::before{ background:linear-gradient(90deg, rgba(15,23,42,.10), transparent 55%); }
+  html[data-theme="light"] .panel:hover{ border-color:#CBD5E1; }
+  html[data-theme="light"] .panel h2{ color:#1E293B; }
+  html[data-theme="light"] .panel h2 .h2-sub{ color:var(--muted); }
+  html[data-theme="light"] .n{ color:#15803D; background:rgba(22,163,74,.10); border-color:rgba(22,163,74,.30); }
+  html[data-theme="light"] label{ color:#475569; }
+  html[data-theme="light"] input[type=text], html[data-theme="light"] select{
+    background:#FFFFFF; border-color:var(--line-2); color:var(--text);
+  }
+  html[data-theme="light"] input[type=text]:hover, html[data-theme="light"] select:hover{ border-color:#94A3B8; }
+  html[data-theme="light"] input[type=text]:focus, html[data-theme="light"] select:focus{ background:#FFFFFF; border-color:rgba(22,163,74,.7); }
+  html[data-theme="light"] input::placeholder{ color:#94A3B8; }
+  html[data-theme="light"] .dropzone{ background:#F8FAFC; }
+  html[data-theme="light"] .dropzone:hover{ color:#0F172A; }
+  html[data-theme="light"] .dropzone.drag{ color:#15803D; background:rgba(22,163,74,.07); }
+  html[data-theme="light"] .dropzone .sel{ color:#15803D; }
+  html[data-theme="light"] .dropzone b{ color:#0F172A; }
+  html[data-theme="light"] .dev{ background:#FFFFFF; }
+  html[data-theme="light"] .dev:hover{ border-color:#94A3B8; }
+  html[data-theme="light"] .dev.on{
+    border-color:rgba(3,105,161,.55);
+    background:linear-gradient(180deg, rgba(3,105,161,.06), rgba(3,105,161,.02));
+    box-shadow:0 0 0 1px rgba(3,105,161,.12);
+  }
+  html[data-theme="light"] .dev .sn{ color:#334155; }
+  html[data-theme="light"] .dev .batpct.hi{ color:#15803D; }
+  html[data-theme="light"] .dev .batpct.mid{ color:#B45309; }
+  html[data-theme="light"] .dev .batpct.low{ color:#DC2626; }
+  html[data-theme="light"] .dev .batzap{ color:#15803D; }
+  html[data-theme="light"] .dev .wfbtn, html[data-theme="light"] .dev .logbtn, html[data-theme="light"] .dev .scbtn{ color:#475569; }
+  html[data-theme="light"] .dev .wfbtn:hover{ color:#0369A1; }
+  html[data-theme="light"] .dev .logbtn:hover{ color:#047857; }
+  html[data-theme="light"] .dev .scbtn:hover{ color:#B45309; }
+  html[data-theme="light"] .appsel{ background:#FFFFFF; border-color:var(--line-2); }
+  html[data-theme="light"] .trash{ color:#DC2626; }
+  html[data-theme="light"] .btn:disabled{ background:#E2E8F0; border-color:#CBD5E1; color:#94A3B8; }
+  html[data-theme="light"] .btn.ghost{ color:#334155; }
+  html[data-theme="light"] .btn.ghost:hover{ background:#F1F5F9; border-color:#94A3B8; color:#0F172A; }
+  html[data-theme="light"] .btn.danger{ color:#DC2626; }
+  html[data-theme="light"] .btn.danger:hover{ background:rgba(220,38,38,.08); color:#B91C1C; }
+  html[data-theme="light"] .btn.teal{ color:#0F766E; border-color:rgba(15,118,110,.4); }
+  html[data-theme="light"] .btn.violet{ color:#6D28D9; border-color:rgba(109,40,217,.35); }
+  html[data-theme="light"] .btn.amber{ color:#B45309; border-color:rgba(180,83,9,.38); }
+  html[data-theme="light"] .btn.emerald{ color:#047857; border-color:rgba(4,120,87,.35); }
+  html[data-theme="light"] .card .head{ background:#F8FAFC; }
+  html[data-theme="light"] .card .sn{ color:#334155; }
+  html[data-theme="light"] .badge.running{ background:rgba(3,105,161,.10); color:#0369A1; box-shadow:inset 0 0 0 1px rgba(3,105,161,.22); }
+  html[data-theme="light"] .badge.ok{ background:rgba(22,163,74,.10); color:#15803D; box-shadow:inset 0 0 0 1px rgba(22,163,74,.22); }
+  html[data-theme="light"] .badge.fail{ background:rgba(220,38,38,.10); color:#DC2626; box-shadow:inset 0 0 0 1px rgba(220,38,38,.22); }
+  html[data-theme="light"] .badge.idle{ background:rgba(100,116,139,.10); color:#475569; box-shadow:inset 0 0 0 1px rgba(100,116,139,.18); }
+  html[data-theme="light"] .step.OK{ color:#15803D; background:rgba(22,163,74,.08); border-color:rgba(22,163,74,.4); }
+  html[data-theme="light"] .step.FAIL{ color:#DC2626; background:rgba(220,38,38,.07); border-color:rgba(220,38,38,.4); }
+  html[data-theme="light"] .step.SKIP{ color:#B45309; background:rgba(180,83,9,.07); border-color:rgba(180,83,9,.38); }
+  html[data-theme="light"] pre.log{ background:#F8FAFC; color:#334155; border:1px solid var(--line); }
+  html[data-theme="light"] .bar{ background:#E2E8F0; }
+  html[data-theme="light"] .err{ color:#DC2626; }
+  html[data-theme="light"] .hint b{ color:#1E293B; }
+  html[data-theme="light"] .hint code{ color:#15803D; background:rgba(22,163,74,.07); }
+  html[data-theme="light"] .witab tbody tr:hover{ background:rgba(3,105,161,.05); }
+  html[data-theme="light"] .witab td.sn{ color:#334155; }
+  html[data-theme="light"] .okcell{ color:#15803D; }
+  html[data-theme="light"] .badcell{ color:#DC2626; }
+  html[data-theme="light"] .wifi-summary{ background:#F8FAFC; }
+  html[data-theme="light"] .wifi-summary.ok{ color:#15803D; }
+  html[data-theme="light"] .wifi-summary.fail{ color:#DC2626; }
+  html[data-theme="light"] .summary-banner{ background:#F8FAFC; }
+  html[data-theme="light"] .summary-banner .sb-head .sb-title.ok{ color:#15803D; }
+  html[data-theme="light"] .summary-banner .sb-head .sb-title.fail{ color:#DC2626; }
+  html[data-theme="light"] .summary-banner .sb-close:hover{ color:#0F172A; }
+  html[data-theme="light"] .summary-banner pre{ color:#334155; }
+  html[data-theme="light"] h3.actions{ color:#1E293B; }
+  html[data-theme="light"] #logPanel{ background:#FFFFFF; box-shadow:0 24px 70px rgba(15,23,42,.22); }
+  html[data-theme="light"] #logPanel .lp-head{ background:#F1F5F9; }
+  html[data-theme="light"] #logPanel .lp-title{ color:#334155; }
+  html[data-theme="light"] #logPanel .lp-btn{ color:#475569; }
+  html[data-theme="light"] #logPanel .lp-btn:hover{ background:#E2E8F0; color:#0F172A; }
+  html[data-theme="light"] #logPanel .lp-btn.on{ color:#15803D; background:rgba(22,163,74,.10); }
+  html[data-theme="light"] #logPanel .lp-tools{ background:#F8FAFC; }
+  html[data-theme="light"] #logPanel .lp-tools input, html[data-theme="light"] #logPanel .lp-tools select{ background:#FFFFFF; }
+  html[data-theme="light"] #logBody{ color:#334155; }
+  html[data-theme="light"] #logBody .ll.lv-v{ color:#94A3B8; }
+  html[data-theme="light"] #logBody .ll.lv-d{ color:#475569; }
+  html[data-theme="light"] #logBody .ll.lv-i{ color:#15803D; }
+  html[data-theme="light"] #logBody .ll.lv-w{ color:#B45309; }
+  html[data-theme="light"] #logBody .ll.lv-e{ color:#DC2626; }
+  html[data-theme="light"] #logBody .ll.lv-f{ color:#FFFFFF; background:#B91C1C; }
+  html[data-theme="light"] .adb-out{ background:#F8FAFC; }
+  html[data-theme="light"] .adb-out .adb-cmd{ color:#0369A1; }
+  html[data-theme="light"] .adb-out .adb-res{ color:#334155; }
+  html[data-theme="light"] .adb-out .adb-res.bad{ color:#DC2626; }
+  html[data-theme="light"] .adb-quick button{ color:#475569; }
+  html[data-theme="light"] .adb-quick button:hover{ color:#15803D; }
+  html[data-theme="light"] .adb-hint{ color:#64748B; }
+  html[data-theme="light"] .toast{ background:#FFFFFF; box-shadow:0 14px 34px rgba(15,23,42,.18); }
+  html[data-theme="light"] #modalMask{ background:rgba(15,23,42,.38); }
+  html[data-theme="light"] .modal{ background:#FFFFFF; box-shadow:0 28px 80px rgba(15,23,42,.22); }
+  html[data-theme="light"] .modal .m-btn.cancel{ color:#334155; }
+  html[data-theme="light"] .modal .m-btn.cancel:hover{ background:#F1F5F9; color:#0F172A; }
 </style>
+<script>try{document.documentElement.dataset.theme=localStorage.getItem('adbTheme')||'dark';}catch(e){}</script>
 </head>
 <body>
   <div class="topbar">
@@ -414,6 +562,7 @@
     <div class="topbar-right">
       <span class="ver-tag" id="verTag" title="点击检查更新">v…</span>
       <button class="ver-btn" id="checkUpdateBtn">检查更新</button>
+      <button class="theme-btn" id="themeBtn" title="切换到浅色" aria-label="切换主题"></button>
     </div>
   </div>
 
@@ -424,7 +573,7 @@
     <div class="dropzone" id="dz">
       将 <b>.apk</b> 文件拖到此处，或 <span class="sel">点击选择</span>
     </div>
-    <div id="apkwarn" style="margin-top:8px;font-size:12px;color:#eab308;display:none">已通过后端自动列出项目目录 APK，可下拉选择</div>
+    <div id="apkwarn" style="margin-top:8px;font-size:12px;color:var(--warn);display:none">已通过后端自动列出项目目录 APK，可下拉选择</div>
     <div class="row" style="margin-top:12px">
       <select id="apkSelect" style="flex:1"></select>
     </div>
@@ -436,7 +585,7 @@
     <div id="fsaStatus" style="font-size:13px;margin-bottom:8px">检查中...</div>
     <div class="dropzone" id="fsaDz" style="padding:14px">
       将 <b>fsa 文件夹</b>拖到此处，或 <span class="sel">点击选择文件夹</span>
-      <br><span style="font-size:11px;color:#94a3b8">优先用 APK 内置的 assets/aikit/fsa；此处为备用（也兼容 .zip）</span>
+      <br><span style="font-size:11px;color:var(--muted)">优先用 APK 内置的 assets/aikit/fsa；此处为备用（也兼容 .zip）</span>
     </div>
   </div>
 
@@ -456,30 +605,30 @@
     <div id="wifiSummary" class="wifi-summary" style="display:none"></div>
     <table id="wifiTable" class="witab" style="display:none;width:100%;border-collapse:collapse;margin-top:10px">
       <thead>
-        <tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">设备</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">状态</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">SSID</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">信号</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">速率</th></tr>
+        <tr><th style="text-align:left;padding:6px 8px;color:var(--info)">设备</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">状态</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">SSID</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">信号</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">速率</th></tr>
       </thead>
       <tbody id="wifiTbody"></tbody>
     </table>
     <div class="err" id="wifiCheckErr"></div>
 
-    <div class="row" style="margin-top:14px;border-top:1px solid #1e293b;padding-top:12px">
+    <div class="row" style="margin-top:14px;border-top:1px solid var(--line);padding-top:12px">
       <label>蓝牙耳机</label>
       <input type="text" id="btName" placeholder="耳机蓝牙名称（如 AirPods / 目标设备名）">
       <button class="btn ghost sm" id="btPairBtn">扫描并配对</button>
       <button class="btn ghost sm" id="btScanBtn">读取蓝牙设备</button>
     </div>
-    <div style="font-size:11px;color:#94a3b8;margin-top:6px">
+    <div style="font-size:11px;color:var(--muted);margin-top:6px">
       配对会打开眼镜的系统蓝牙设置并自动点选目标耳机（需耳机已进入配对模式、眼镜屏幕亮起），依赖设备界面文案。
     </div>
     <table id="btTable" class="witab" style="display:none;width:100%;border-collapse:collapse;margin-top:10px">
       <thead>
-        <tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">设备</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">MAC</th>
-        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">状态</th></tr>
+        <tr><th style="text-align:left;padding:6px 8px;color:var(--info)">设备</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">MAC</th>
+        <th style="text-align:left;padding:6px 8px;color:var(--info)">状态</th></tr>
       </thead>
       <tbody id="btTbody"></tbody>
     </table>
@@ -525,10 +674,10 @@
       <button class="btn ghost sm" id="uncheckAll">全不选</button>
       <button class="btn ghost sm" id="macmapBtn">收集MAC/序列号对照表</button>
       <button class="btn ghost sm" id="batchDidBtn">批量抓取 deviceId（全部在线）</button>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#7dd3fc;cursor:pointer">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--info);cursor:pointer">
         <input type="checkbox" id="shutdownChk" style="width:16px;height:16px">抓完自动关机
       </label>
-      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:#7dd3fc;cursor:pointer" title="关闭后对照表只读历史记录，删除的行不会被在线设备自动补回">
+      <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--info);cursor:pointer" title="关闭后对照表只读历史记录，删除的行不会被在线设备自动补回">
         <input type="checkbox" id="autoCollectChk" style="width:16px;height:16px" checked>自动采集
       </label>
     </div>
@@ -536,16 +685,16 @@
     <div id="deviceErr" class="err"></div>
     <div id="macmapArea" style="display:none;margin-top:12px">
       <div class="row" style="margin-bottom:8px">
-        <span id="macmapInfo" style="font-size:13px;color:#7dd3fc"></span>
+        <span id="macmapInfo" style="font-size:13px;color:var(--info)"></span>
         <button class="btn danger sm" id="copyMacmap">复制对照表</button>
         <button class="btn ghost sm" id="toggleMacmap">收起</button>
       </div>
       <table id="macmapTable" class="witab" style="width:100%;border-collapse:collapse">
-        <thead><tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">adb 序列号</th>
-          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">MAC 地址</th>
-          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">ANDROID_ID</th>
-          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">Unity deviceId</th>
-          <th style="text-align:left;padding:6px 8px;color:#7dd3fc">操作</th></tr></thead>
+        <thead><tr><th style="text-align:left;padding:6px 8px;color:var(--info)">adb 序列号</th>
+          <th style="text-align:left;padding:6px 8px;color:var(--info)">MAC 地址</th>
+          <th style="text-align:left;padding:6px 8px;color:var(--info)">ANDROID_ID</th>
+          <th style="text-align:left;padding:6px 8px;color:var(--info)">Unity deviceId</th>
+          <th style="text-align:left;padding:6px 8px;color:var(--info)">操作</th></tr></thead>
         <tbody id="macmapTbody"></tbody>
       </table>
     </div>
@@ -1156,7 +1305,7 @@ function renderBtDevices(devs) {
     const name = (x.name === '(未知设备)')
       ? '<span style="color:#6b7280">(未知设备)</span>' : esc(x.name);
     return `<tr><td style="padding:6px 8px;color:#e2e8f0">${name}</td>
-      <td style="padding:6px 8px;color:#94a3b8">${esc(x.mac)}</td>
+      <td style="padding:6px 8px;color:var(--muted)">${esc(x.mac)}</td>
       <td style="padding:6px 8px">${state}</td></tr>`;
   }).join('');
   tbl.style.display = '';
@@ -1476,7 +1625,7 @@ $('poweroffBtn').onclick = async () => {
 function uploadApk(file) {
   if (!file || !/\.apk$/i.test(file.name)) { toast('请选择 .apk 文件', 'err'); return; }
   const dz = $('dz');
-  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:#7dd3fc" id="upPct"></span>`;
+  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:var(--info)" id="upPct"></span>`;
   const xhr = new XMLHttpRequest();
   xhr.open('POST', '/api/upload_apk?name=' + encodeURIComponent(file.name));
   xhr.upload.onprogress = e => {
@@ -1530,13 +1679,13 @@ function refreshFsaStatus() {
     if (!el) return;
     if (d.apk_has_fsa) {
       el.innerHTML = `<span style="color:#4ade80">✔ APK 内置 fsa：${d.apk_fsa_count} 个文件</span>` +
-        `　<span style="color:#94a3b8;font-size:11px">安装时自动解包并推送到 /sdcard/aikit/esr/fsa（优先于本地）</span>`;
+        `　<span style="color:var(--muted);font-size:11px">安装时自动解包并推送到 /sdcard/aikit/esr/fsa（优先于本地）</span>`;
     } else if (d.exists && d.local_for_apk) {
       el.innerHTML = `<span style="color:#4ade80">✔ APK 未内置 fsa，使用本地 fsa：${d.count} 个文件</span>` +
-        `　<span style="color:#94a3b8;font-size:11px">已为当前 APK 手动上传</span>`;
+        `　<span style="color:var(--muted);font-size:11px">已为当前 APK 手动上传</span>`;
     } else if (d.exists) {
       el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa；本地 fsa 属于「${d.local_apk || '未知 APK'}」，可能是上个 APK 遗留，已忽略</span>` +
-        `　<span style="color:#94a3b8;font-size:11px">请为当前 APK 手动上传</span>`;
+        `　<span style="color:var(--muted);font-size:11px">请为当前 APK 手动上传</span>`;
     } else {
       el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa，本地也没有——请为当前 APK 手动上传</span>`;
     }
@@ -1545,7 +1694,7 @@ function refreshFsaStatus() {
 function uploadFsa(file) {
   if (!file || !/\.zip$/i.test(file.name)) { toast('请选择 fsa 文件夹或 .zip 文件', 'err'); return; }
   const dz = $('fsaDz');
-  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:#7dd3fc" id="fsaUpPct"></span>`;
+  dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:var(--info)" id="fsaUpPct"></span>`;
   const xhr = new XMLHttpRequest();
   const _apk = ($('apkSelect') ? $('apkSelect').value : '');
   xhr.open('POST', '/api/upload_fsa?name=' + encodeURIComponent(file.name) +
@@ -1581,7 +1730,7 @@ async function uploadFsaFolder(list, rootName) {
   for (let i = 0; i < list.length; i++) {
     const it = list[i];
     dz.innerHTML = `<b>上传中：${it.rel}</b><br>` +
-      `<span style="font-size:11px;color:#7dd3fc">${i + 1} / ${list.length} 个文件</span>`;
+      `<span style="font-size:11px;color:var(--info)">${i + 1} / ${list.length} 个文件</span>`;
     const first = i === 0 ? '&first=1' : '';
     const _apk = ($('apkSelect') ? $('apkSelect').value : '');
     const apkQ = _apk ? '&apk=' + encodeURIComponent(_apk) : '';
@@ -1997,6 +2146,27 @@ refreshWifi();
 setInterval(refreshDevices, 8000);
 setInterval(refreshStatus, 3000);
 setInterval(refreshWifi, 5000);
+
+// ---------- 主题切换 ----------
+(function(){
+  const root = document.documentElement;
+  const btn = $('themeBtn');
+  if (!btn) return;
+  const SUN = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.6v2.2M12 19.2v2.2M4.4 4.4l1.6 1.6M18 18l1.6 1.6M2.6 12h2.2M19.2 12h2.2M4.4 19.6l1.6-1.6M18 6l1.6-1.6"/></svg>';
+  const MOON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 14.6A8.6 8.6 0 0 1 9.4 3.4a8.6 8.6 0 1 0 11.2 11.2Z"/></svg>';
+  function paint(){
+    const light = root.dataset.theme === 'light';
+    btn.innerHTML = light ? MOON : SUN;
+    const t = light ? '切换到深色' : '切换到浅色';
+    btn.title = t; btn.setAttribute('aria-label', t);
+  }
+  btn.onclick = function(){
+    root.dataset.theme = (root.dataset.theme === 'light') ? 'dark' : 'light';
+    try { localStorage.setItem('adbTheme', root.dataset.theme); } catch(e){}
+    paint();
+  };
+  paint();
+})();
 </script>
 </body>
 </html>
