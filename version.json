@@ -1,11 +1,18 @@
 {
-    "version":  "0.1.7",
-    "notes":  "修复更新误判：只认语义化版本号，镜像缓存的旧时间戳版本不再被当成最高版本；移除缓存滞后的 gcore 镜像",
+    "version":  "0.1.8",
+    "notes":  "新增 Scrcpy 投屏（内置精简版 3.3.4，约 9.5MB）：设备卡片一键投屏；更新器会把 scrcpy/ 一并下发，老客户端更新时自动补齐",
     "files":  {
-                  "launcher.exe":  "7e438fa2510dc97a0c365c2efe828d29",
-                  "web/server.py":  "6ed6ce1d8c50ee7afd41ddba1ec2becc",
-                  "web/index.html":  "e6ce14eac6eecc7652a95b64dcb7f929",
+                  "launcher.exe":  "b9c7842fc0e2ec35880c084f5308ed38",
+                  "web/server.py":  "a5b813b81080add9f68cc7166e95f30c",
+                  "web/index.html":  "b5884cbce3addf836de46581cf9df469",
                   "updater.ps1":  "0a79f07ed902f654b44daf6368418695",
-                  "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53"
+                  "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
+                  "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
+                  "scrcpy/avformat-61.dll":  "5b977bb2cc8238e23130e3e009c77e66",
+                  "scrcpy/avutil-59.dll":  "fb69b85010e1d2bfb1b3ff4cef1d5f90",
+                  "scrcpy/scrcpy.exe":  "b462d800ba714e8e301aa0a6b8dceed8",
+                  "scrcpy/scrcpy-server":  "9153cfe86c4cac296581d022889683af",
+                  "scrcpy/SDL2.dll":  "43b0e7ab01de96ccab97458135f63386",
+                  "scrcpy/swresample-5.dll":  "f337a218595497e1c791a0d63bc728e3"
               }
 }

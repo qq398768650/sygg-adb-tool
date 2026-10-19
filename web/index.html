@@ -50,6 +50,9 @@
   .dev .wfres { margin-top: 5px; font-size: 11px; min-height: 13px; }
   .dev .logbtn { margin-top: 8px; padding: 3px 8px; font-size: 11px; border: 1px solid #475569; background: #1e293b; color: #a7f3d0; border-radius: 5px; cursor: pointer; }
   .dev .logbtn:hover { background: #05966940; border-color: #34d399; }
+  .dev .scbtn { margin-top: 8px; padding: 3px 8px; font-size: 11px; border: 1px solid #475569; background: #1e293b; color: #fcd34d; border-radius: 5px; cursor: pointer; }
+  .dev .scbtn:hover { background: #d9770640; border-color: #fbbf24; }
+  .dev .scbtn:disabled { opacity: .5; cursor: wait; }
   /* logcat 查看面板 */
   #logPanel { position: fixed; right: 16px; bottom: 16px; width: 860px; max-width: calc(100vw - 32px);
     height: 62vh; min-height: 260px; display: none; flex-direction: column; background: #0b1220;
@@ -241,6 +244,25 @@
       <tbody id="wifiTbody"></tbody>
     </table>
     <div class="err" id="wifiCheckErr"></div>
+
+    <div class="row" style="margin-top:14px;border-top:1px solid #1e293b;padding-top:12px">
+      <label>蓝牙耳机</label>
+      <input type="text" id="btName" placeholder="耳机蓝牙名称（如 AirPods / 目标设备名）">
+      <button class="btn" id="btPairBtn" style="padding:8px 16px;font-size:13px;background:#0284c7">扫描并配对</button>
+      <button class="btn" id="btScanBtn" style="padding:8px 16px;font-size:13px;background:#475569">读取蓝牙设备</button>
+    </div>
+    <div style="font-size:11px;color:#94a3b8;margin-top:6px">
+      配对会打开眼镜的系统蓝牙设置并自动点选目标耳机（需耳机已进入配对模式、眼镜屏幕亮起），依赖设备界面文案。
+    </div>
+    <table id="btTable" class="witab" style="display:none;width:100%;border-collapse:collapse;margin-top:10px">
+      <thead>
+        <tr><th style="text-align:left;padding:6px 8px;color:#7dd3fc">设备</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">MAC</th>
+        <th style="text-align:left;padding:6px 8px;color:#7dd3fc">状态</th></tr>
+      </thead>
+      <tbody id="btTbody"></tbody>
+    </table>
+    <div class="err" id="btErr"></div>
   </div>
   </div>
 
@@ -571,6 +593,7 @@ function renderDevices() {
       ${batLineHtml(s)}
       <button class="wfbtn" data-sn="${s}">⟳ 重连WiFi</button>
       <button class="logbtn" data-sn="${s}">📜 日志</button>
+      <button class="scbtn" data-sn="${s}">📱 投屏</button>
       ${appLineHtml(s)}
       <div class="wfres" data-sn="${s}"></div></div>`;
   }).join('');
@@ -578,6 +601,7 @@ function renderDevices() {
     el.addEventListener('click', (e) => {
       const t = e.target;
       if (t.classList && (t.classList.contains('wfbtn') || t.classList.contains('logbtn') ||
+                          t.classList.contains('scbtn') ||
                           t.classList.contains('appsel') || t.classList.contains('trash'))) return;
       const s = el.dataset.sn;
       state.devicesChecked[s] = !state.devicesChecked[s];
@@ -594,6 +618,21 @@ function renderDevices() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       openLog(btn.dataset.sn);
+    });
+  });
+  box.querySelectorAll('.scbtn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = btn.dataset.sn;
+      btn.disabled = true;
+      api('scrcpy', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ serial: s }) })
+        .then(r => {
+          if (!r.ok) throw new Error(r.error || '启动失败');
+          toast('已启动投屏：' + s, 'ok');
+        })
+        .catch(err => toast('投屏启动失败：' + err.message, 'err', 4000))
+        .finally(() => { btn.disabled = false; });
     });
   });
   box.querySelectorAll('.appsel').forEach(sel => {
@@ -870,6 +909,64 @@ $('ssidPick').onchange = () => {
     toast(`SSID 已设置为：${pick.value}`, 'ok');
   }
   pick.style.display = 'none';
+};
+
+function renderBtDevices(devs) {
+  const tbl = $('btTable'), tb = $('btTbody');
+  tb.innerHTML = devs.map(x => {
+    const state = x.connected ? '<span style="color:#4ade80">已连接</span>'
+                 : (x.bonded ? '已配对' : '未配对');
+    const name = (x.name === '(未知设备)')
+      ? '<span style="color:#6b7280">(未知设备)</span>' : esc(x.name);
+    return `<tr><td style="padding:6px 8px;color:#e2e8f0">${name}</td>
+      <td style="padding:6px 8px;color:#94a3b8">${esc(x.mac)}</td>
+      <td style="padding:6px 8px">${state}</td></tr>`;
+  }).join('');
+  tbl.style.display = '';
+}
+
+$('btScanBtn').onclick = () => {
+  const btn = $('btScanBtn'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '读取中…';
+  $('btErr').textContent = '';
+  api('bt_scan').then(d => {
+    const devs = d.devices || [];
+    if (d.error || !devs.length) {
+      $('btTable').style.display = 'none';
+      toast('未读取到蓝牙设备（请确认有设备在线且蓝牙已开启）', 'err');
+      return;
+    }
+    renderBtDevices(devs);
+    toast(`读取到 ${devs.length} 个蓝牙设备`, 'ok');
+  }).catch(e => { toast('读取失败：' + e.message, 'err'); })
+    .finally(() => { btn.disabled = false; btn.textContent = old; });
+};
+
+$('btPairBtn').onclick = async () => {
+  const target = $('btName').value.trim();
+  if (!target) { toast('请先填写蓝牙耳机名称', 'err'); return; }
+  const btn = $('btPairBtn'), old = btn.textContent;
+  btn.disabled = true; btn.textContent = '配对中…';
+  $('btErr').textContent = '';
+  try {
+    const d = await api('bt_pair', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target })
+    });
+    const steps = (d.steps || []).join(' · ');
+    if (d.ok) {
+      $('btErr').textContent = steps;
+      toast(`「${target}」配对成功`, 'ok', 3600);
+    } else {
+      $('btErr').textContent = (d.error || '配对失败') + (steps ? ' —— ' + steps : '');
+      toast('配对未完成：' + (d.error || ''), 'err', 4200);
+    }
+  } catch (e) {
+    toast('配对请求失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.textContent = old;
+  }
 };
 
 function collectMacmap() {

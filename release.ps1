@@ -61,16 +61,24 @@ if (-not $Note) {
 if (-not $Note) { $Note = "版本 $version" }
 
 Write-Host "[release] 生成 version.json (版本 $version) ..." -ForegroundColor Cyan
+$files = [ordered]@{
+    'launcher.exe'   = (Get-Md5 (Join-Path $root 'launcher.exe'))
+    'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
+    'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
+    'updater.ps1'    = (Get-Md5 (Join-Path $root 'updater.ps1'))
+    'start.bat'      = (Get-Md5 (Join-Path $root 'start.bat'))
+}
+# 内置 scrcpy（精简版）：纳入更新清单，老客户端更新时会自动补齐 scrcpy/ 目录
+$scrcpyDir = Join-Path $root 'scrcpy'
+if (Test-Path $scrcpyDir) {
+    Get-ChildItem -LiteralPath $scrcpyDir -File | Sort-Object Name | ForEach-Object {
+        $files["scrcpy/$($_.Name)"] = (Get-Md5 $_.FullName)
+    }
+}
 $obj = [ordered]@{
     version = $version
     notes   = $Note
-    files   = [ordered]@{
-        'launcher.exe'   = (Get-Md5 (Join-Path $root 'launcher.exe'))
-        'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
-        'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
-        'updater.ps1'    = (Get-Md5 (Join-Path $root 'updater.ps1'))
-        'start.bat'      = (Get-Md5 (Join-Path $root 'start.bat'))
-    }
+    files   = $files
 }
 [IO.File]::WriteAllText((Join-Path $root 'version.json'), ($obj | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false))
 

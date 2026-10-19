@@ -302,6 +302,51 @@ def find_adb():
 
 ADB = find_adb()
 
+
+def find_scrcpy():
+    """查找 scrcpy.exe：项目内 scrcpy/ 优先（保证分发即用），其次 PATH 与常见安装位置。"""
+    cands = [
+        os.path.join(PROJECT_DIR, "scrcpy", "scrcpy.exe"),
+        os.path.join(PROJECT_DIR, "scrcpy.exe"),
+    ]
+    for c in cands:
+        if os.path.exists(c):
+            return c
+    p = shutil.which("scrcpy")
+    if p:
+        return p
+    for c in [
+        os.path.expandvars(r"%LOCALAPPDATA%\scrcpy\scrcpy.exe"),
+        r"C:\scrcpy\scrcpy.exe",
+        r"D:\scrcpy\scrcpy.exe",
+        r"C:\Program Files\scrcpy\scrcpy.exe",
+    ]:
+        if os.path.exists(c):
+            return c
+    return ""
+
+
+SCRCPY = find_scrcpy()
+
+
+def launch_scrcpy(serial):
+    """为指定设备启动 scrcpy 投屏窗口（独立进程，不阻塞网页）。"""
+    exe = SCRCPY or find_scrcpy()
+    if not exe:
+        return False, "未找到 scrcpy.exe（可放到项目根目录 scrcpy\\ 下，或安装到 C:\\scrcpy）"
+    try:
+        env = dict(os.environ)
+        env["ADB"] = ADB          # 复用本工具的 adb，避免两套 adb server 抢 5037 端口
+        subprocess.Popen(
+            [exe, "-s", serial, "--window-title", "投屏 - " + serial],
+            cwd=os.path.dirname(exe) or None,
+            env=env,
+            creationflags=0x00000008,   # DETACHED_PROCESS：关掉网页也不影响投屏
+        )
+        return True, ""
+    except Exception as e:
+        return False, str(e)
+
 # ---------- 全局状态 ----------
 # status[serial] = {"serial":..., "state": "idle|running|done|error",
 #                   "steps": [...], "logs": [...], "result": "OK/FAIL/RUNNING",
@@ -1296,6 +1341,174 @@ def scan_wifi(serial):
     return sorted(result)
 
 
+# ---------------------------------------------------------------- 蓝牙
+_BT_MAC_RE = re.compile(r'^([0-9A-Fa-f]{2}(?::[0-9A-Fa-f]{2}){5})\b\s*(.*)$')
+_UI_BOUNDS_RE = re.compile(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"')
+
+
+def _parse_bt_devices(text):
+    """从 dumpsys bluetooth_manager 输出解析蓝牙设备（已配对 / 已连接）。
+    返回 [{'mac','name','bonded','connected'}]，按出现顺序去重。"""
+    devs, order, section = {}, [], ""
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        low = line.lower()
+        if line.endswith(":"):
+            if "bonded" in low:
+                section = "bonded"
+            elif "connected" in low:
+                section = "connected"
+            else:
+                section = ""
+            continue
+        m = _BT_MAC_RE.match(line)
+        if not m or section not in ("bonded", "connected"):
+            continue
+        mac = m.group(1).upper()
+        name = m.group(2).split("[")[0].strip() or "(未知设备)"
+        if mac not in devs:
+            devs[mac] = {"mac": mac, "name": name, "bonded": False, "connected": False}
+            order.append(mac)
+        else:
+            if devs[mac]["name"] == "(未知设备)" and name != "(未知设备)":
+                devs[mac]["name"] = name
+        if section == "bonded":
+            devs[mac]["bonded"] = True
+        else:
+            devs[mac]["connected"] = True
+    return [devs[m] for m in order]
+
+
+def scan_bluetooth(serial):
+    """读取单台设备蓝牙：已配对设备 + （若系统正在发现）附近设备。
+    纯读取，不改变设备界面。"""
+    try:
+        rc, st = adb_shell(serial, ["shell", "settings", "get", "global", "bluetooth_on"], timeout=30)
+        if (st or "").strip() != "1":
+            adb_shell(serial, ["shell", "svc", "bluetooth", "enable"], timeout=30)
+            time.sleep(2)
+        rc, out = adb_shell(serial, ["shell", "dumpsys", "bluetooth_manager"], timeout=30)
+        return {"devices": _parse_bt_devices(out or ""), "error": ""}
+    except Exception as e:
+        return {"devices": [], "error": str(e)}
+
+
+def _dump_ui_nodes(serial):
+    """uiautomator dump 当前界面，返回 [{'text','x','y'}]（x,y 为控件中心坐标）。"""
+    adb_shell(serial, ["shell", "uiautomator", "dump", "/data/local/tmp/_bt_ui.xml"], timeout=30)
+    rc, xml = adb_shell(serial, ["exec-out", "cat", "/data/local/tmp/_bt_ui.xml"], timeout=30)
+    if not xml or "<node" not in xml:
+        return []
+    nodes = []
+    for tag in re.findall(r'<node\b[^>]*?>', xml):
+        m = re.search(r'text="([^"]*)"', tag)
+        text = (m.group(1) if m else "").strip()
+        if not text:
+            continue
+        b = _UI_BOUNDS_RE.search(tag)
+        if not b:
+            continue
+        x1, y1, x2, y2 = map(int, b.groups())
+        if x2 <= x1 or y2 <= y1:
+            continue
+        nodes.append({"text": text, "x": (x1 + x2) // 2, "y": (y1 + y2) // 2})
+    return nodes
+
+
+def _find_ui_node(nodes, contains=None, texts=None):
+    """找界面节点：text 含 contains（不区分大小写）；或 text 精确命中 texts 之一。
+    比较前去掉空白，兼容部分 ROM 给中文按钮插空格（如「配 对」）的情况。"""
+    def norm(s):
+        return re.sub(r'\s+', '', s or "")
+    if contains:
+        c = norm(contains).lower()
+        for n in nodes:
+            if c in norm(n["text"]).lower():
+                return n
+    if texts:
+        ts = {norm(t) for t in texts}
+        for n in nodes:
+            if norm(n["text"]) in ts:
+                return n
+    return None
+
+
+def pair_bluetooth(serial, target):
+    """UI 自动化配对蓝牙设备（主要针对蓝牙耳机）。
+
+    流程：确保蓝牙开启 → 亮屏解锁 → 打开系统蓝牙设置（该页会自动扫描）→
+    轮询界面找到目标设备并点击 → 如出现配对确认框则点确认 → 校验是否已配对。
+    返回 {ok, steps, error}。注意：依赖系统界面文案，不同 ROM 可能需调整。
+    """
+    steps = []
+
+    def note(msg):
+        steps.append(msg)
+        log(serial, "       " + msg)
+
+    target = (target or "").strip()
+    if not target:
+        return {"ok": False, "steps": steps, "error": "未填写目标设备名称"}
+
+    # 1) 确保蓝牙开启
+    rc, st = adb_shell(serial, ["shell", "settings", "get", "global", "bluetooth_on"], timeout=30)
+    if (st or "").strip() != "1":
+        adb_shell(serial, ["shell", "svc", "bluetooth", "enable"], timeout=30)
+        time.sleep(2)
+    note("蓝牙已开启")
+
+    # 2) 亮屏 + 解锁（UI 自动化需要屏幕可用）
+    adb_shell(serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"], timeout=15)
+    adb_shell(serial, ["shell", "wm", "dismiss-keyguard"], timeout=15)
+    time.sleep(1)
+
+    # 3) 打开系统蓝牙设置页（该页会自动开始扫描附近设备）
+    adb_shell(serial, ["shell", "am", "start", "-a", "android.settings.BLUETOOTH_SETTINGS"], timeout=30)
+    time.sleep(3)
+    note("已打开系统蓝牙设置")
+
+    # 4) 轮询查找目标设备并点击
+    tapped = False
+    for attempt in range(6):
+        nodes = _dump_ui_nodes(serial)
+        if not nodes:
+            note(f"第{attempt + 1}次：界面读取失败，重试…")
+            time.sleep(2)
+            continue
+        hit = _find_ui_node(nodes, contains=target)
+        if not hit:
+            note(f"第{attempt + 1}次：暂未发现「{target}」，继续等待扫描…")
+            time.sleep(2)
+            continue
+        adb_shell(serial, ["shell", "input", "tap", str(hit["x"]), str(hit["y"])], timeout=20)
+        note(f"已点击「{hit['text']}」")
+        tapped = True
+        time.sleep(2)
+        break
+    if not tapped:
+        return {"ok": False, "steps": steps,
+                "error": f"未在蓝牙设置里找到「{target}」（请确认耳机已进入配对模式）"}
+
+    # 5) 处理配对确认弹窗（不同 ROM 文案不同）
+    for _ in range(3):
+        nodes = _dump_ui_nodes(serial)
+        btn = _find_ui_node(nodes, texts=("配对", "PAIR", "Pair", "确定", "OK", "连接", "Connect"))
+        if btn:
+            adb_shell(serial, ["shell", "input", "tap", str(btn["x"]), str(btn["y"])], timeout=20)
+            note(f"点击确认「{btn['text']}」")
+            time.sleep(2)
+            break
+        time.sleep(2)
+
+    # 6) 校验是否已配对
+    rc, out = adb_shell(serial, ["shell", "dumpsys", "bluetooth_manager"], timeout=30)
+    devs = _parse_bt_devices(out or "")
+    tl = target.lower()
+    ok = any(tl in d["name"].lower() and d["bonded"] for d in devs)
+    note("配对成功" if ok else "未能确认配对结果（设备可能仍需手动确认）")
+    return {"ok": ok, "steps": steps, "error": "" if ok else "未确认配对成功"}
+
+
 def check_all_wifi():
     """并行检测所有在线设备 WiFi，返回 [(device, list)]"""
     devs = list_devices()
@@ -1633,6 +1846,17 @@ class Handler(BaseHTTPRequestHandler):
             ssids = scan_wifi(serial)
             self._send(200, {"serial": serial, "ssids": ssids})
             return
+        if path == "/api/bt_scan":
+            # 用第一台在线设备读取蓝牙设备（已配对/在线）
+            devs = list_devices()
+            if not devs:
+                self._send(200, {"devices": [], "error": "no device"})
+                return
+            serial = (self.path.split("?serial=", 1)[1].split("&")[0]
+                      if "serial=" in self.path else devs[0])
+            result = scan_bluetooth(serial)
+            self._send(200, {"serial": serial, **result})
+            return
         if path == "/api/macmap":
             # auto=0 时只读文件历史记录，不自动采集/补全/落盘（删除记录后不会被重新加回）
             qs = self.path.split("?", 1)[1] if "?" in self.path else ""
@@ -1830,6 +2054,24 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 self._send(400, {"error": str(e)})
             return
+        if self.path.split("?")[0] == "/api/bt_pair":
+            # 蓝牙配对（UI 自动化）：打开系统蓝牙设置、点选目标设备完成配对
+            data = self._read_body()
+            target = (data.get("target") or "").strip()
+            serial = (data.get("serial") or "").strip()
+            devs = list_devices()
+            if not devs:
+                self._send(200, {"ok": False, "steps": [], "error": "no device"})
+                return
+            if not serial or serial not in devs:
+                serial = devs[0]
+            if not target:
+                self._send(400, {"ok": False, "steps": [], "error": "target required"})
+                return
+            result = pair_bluetooth(serial, target)
+            result["serial"] = serial
+            self._send(200, result)
+            return
         if self.path.split("?")[0] == "/api/adb":
             # ADB 终端：执行任意 adb 子命令（命令不带 adb 前缀，由后端以列表传参，无 shell 注入面）
             data = self._read_body()
@@ -1878,6 +2120,15 @@ class Handler(BaseHTTPRequestHandler):
             for s in serials:
                 threading.Thread(target=reboot_one, args=(s,)).start()
             self._send(200, {"ok": True, "started": len(serials)})
+            return
+        if self.path.split("?")[0] == "/api/scrcpy":
+            data = self._read_body()
+            serial = (data.get("serial") or "").strip()
+            if not serial:
+                self._send(400, {"ok": False, "error": "缺少 serial"})
+                return
+            ok, err = launch_scrcpy(serial)
+            self._send(200, {"ok": ok, "error": err})
             return
         if self.path.split("?")[0] == "/api/poweroff":
             data = self._read_body()
