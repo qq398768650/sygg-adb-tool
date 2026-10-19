@@ -89,6 +89,7 @@ def fetch_remote_version(timeout=20):
     if not os.path.isfile(curl):
         curl = "curl.exe"
     last_err = "网络不可用"
+    ts = int(time.time())   # 时间戳绕过镜像缓存（刚发布时镜像可能还缓存着旧版）
     for base in UPDATE_MIRRORS:
         try:
             os.remove(tmp)
@@ -96,7 +97,7 @@ def fetch_remote_version(timeout=20):
             pass
         try:
             subprocess.run([curl, "-fsSL", "--connect-timeout", "5", "--max-time", str(timeout),
-                            "-o", tmp, base + "/version.json"],
+                            "-o", tmp, base + "/version.json?t=%d" % ts],
                            capture_output=True, timeout=timeout + 10)
         except Exception as e:
             last_err = str(e)

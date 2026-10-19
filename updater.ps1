@@ -9,6 +9,8 @@ $branch   = 'main'
 $localVer = Join-Path $root 'version.json'
 $curl     = Join-Path $env:SystemRoot 'System32\curl.exe'
 if (-not (Test-Path -LiteralPath $curl)) { $curl = 'curl.exe' }
+# 加时间戳绕过镜像缓存（刚发布时镜像可能还缓存着旧版 version.json）
+$ts       = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
 
 # 多个下载源，逐个尝试（GitHub 直连在国内常被墙，用镜像兜底）
 $mirrors = @(
@@ -45,7 +47,7 @@ function Compare-Ver([string]$a, [string]$b) {
 function Get-Remote([string]$rel, [string]$dest, [string]$want = '', [int]$maxTime = 20) {
     foreach ($m in $mirrors) {
         Remove-Item -LiteralPath $dest -Force
-        & $curl -fsSL --connect-timeout 5 --max-time $maxTime -o $dest "$m/$rel" 2>$null | Out-Null
+        & $curl -fsSL --connect-timeout 5 --max-time $maxTime -o $dest "$m/${rel}?t=$ts" 2>$null | Out-Null
         if (-not (Test-Path -LiteralPath $dest)) { continue }
         if ((Get-Item -LiteralPath $dest).Length -le 0) { continue }
         if ($want -and ((Get-Md5 $dest) -ne $want)) { continue }
@@ -62,7 +64,7 @@ $remote = $null
 foreach ($m in $mirrors) {
     $t = Join-Path $root '.version.try.json'
     Remove-Item -LiteralPath $t -Force
-    & $curl -fsSL --connect-timeout 5 --max-time 10 -o $t "$m/version.json" 2>$null | Out-Null
+    & $curl -fsSL --connect-timeout 5 --max-time 10 -o $t "$m/version.json?t=$ts" 2>$null | Out-Null
     if (-not (Test-Path -LiteralPath $t)) { continue }
     if ((Get-Item -LiteralPath $t).Length -le 0) { continue }
     try { $r = Get-Content -LiteralPath $t -Raw -Encoding UTF8 | ConvertFrom-Json } catch { $r = $null }
