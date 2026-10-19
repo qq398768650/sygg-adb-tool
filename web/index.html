@@ -1735,15 +1735,22 @@ function refreshFsaStatus() {
   api('fsa_status' + q).then(d => {
     const el = $('fsaStatus');
     if (!el) return;
+    const badTip = (n, list) => n
+      ? `　<span style="color:#f87171;font-size:11px">⚠ 含 ${n} 个非 txt 文件，注入时会被忽略：` +
+        `${(list || []).slice(0, 3).join('、')}${n > 3 ? ' …' : ''}</span>`
+      : '';
     if (d.apk_has_fsa) {
-      el.innerHTML = `<span style="color:#4ade80">✔ APK 内置 fsa：${d.apk_fsa_count} 个文件</span>` +
-        `　<span style="color:var(--muted);font-size:11px">安装时自动解包并推送到 /sdcard/aikit/esr/fsa（优先于本地）</span>`;
+      el.innerHTML = `<span style="color:#4ade80">✔ APK 内置 fsa：${d.apk_fsa_count} 个 txt</span>` +
+        `　<span style="color:var(--muted);font-size:11px">安装时自动解包并推送到 /sdcard/aikit/esr/fsa（优先于本地）</span>` +
+        badTip((d.apk_fsa_bad || []).length, d.apk_fsa_bad);
     } else if (d.exists && d.local_for_apk) {
-      el.innerHTML = `<span style="color:#4ade80">✔ APK 未内置 fsa，使用本地 fsa：${d.count} 个文件</span>` +
-        `　<span style="color:var(--muted);font-size:11px">已为当前 APK 手动上传</span>`;
+      el.innerHTML = `<span style="color:#4ade80">✔ APK 未内置 fsa，使用本地 fsa：${d.count} 个 txt</span>` +
+        `　<span style="color:var(--muted);font-size:11px">已为当前 APK 手动上传</span>` +
+        badTip(d.bad_count, d.bad_files);
     } else if (d.exists) {
       el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa；本地 fsa 属于「${d.local_apk || '未知 APK'}」，可能是上个 APK 遗留，已忽略</span>` +
-        `　<span style="color:var(--muted);font-size:11px">请为当前 APK 手动上传</span>`;
+        `　<span style="color:var(--muted);font-size:11px">请为当前 APK 手动上传</span>` +
+        badTip(d.bad_count, d.bad_files);
     } else {
       el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa，本地也没有——请为当前 APK 手动上传</span>`;
     }
@@ -1766,9 +1773,11 @@ function uploadFsa(file) {
   xhr.onload = () => {
     if (xhr.status === 200) {
       const r = JSON.parse(xhr.responseText);
-      dz.innerHTML = `已导入：<b>${file.name}</b>（${r.files} 个文件，已覆盖本地 fsa）<br>` +
+      const skip = r.skipped_count
+        ? `　<span style="color:#f87171">已忽略 ${r.skipped_count} 个非 txt 文件</span>` : '';
+      dz.innerHTML = `已导入：<b>${file.name}</b>（${r.files} 个 txt，已覆盖本地 fsa）${skip}<br>` +
         `<span style="font-size:11px;color:#4ade80">安装时将自动推送</span>`;
-      toast(`fsa 已导入：${r.files} 个文件`, 'ok');
+      toast(`fsa 已导入：${r.files} 个 txt` + (r.skipped_count ? `（忽略 ${r.skipped_count} 个非 txt）` : ''), 'ok');
       refreshFsaStatus();
     } else {
       let msg = '上传失败（' + xhr.status + '）';
@@ -1785,10 +1794,18 @@ function uploadFsa(file) {
 async function uploadFsaFolder(list, rootName) {
   if (!list.length) { toast('文件夹为空', 'err'); return; }
   const dz = $('fsaDz');
-  for (let i = 0; i < list.length; i++) {
-    const it = list[i];
+  const good = list.filter(it => /\.txt$/i.test(it.rel));
+  const bad = list.filter(it => !/\.txt$/i.test(it.rel));
+  if (!good.length) {
+    dz.innerHTML = `文件夹里没有 .txt 文件（设备只接受 txt，其他格式会读取异常）`;
+    toast('没有 .txt 文件，未导入', 'err');
+    return;
+  }
+  if (bad.length) toast(`已跳过 ${bad.length} 个非 txt 文件（设备只接受 txt）`, 'err');
+  for (let i = 0; i < good.length; i++) {
+    const it = good[i];
     dz.innerHTML = `<b>上传中：${it.rel}</b><br>` +
-      `<span style="font-size:11px;color:var(--info)">${i + 1} / ${list.length} 个文件</span>`;
+      `<span style="font-size:11px;color:var(--info)">${i + 1} / ${good.length} 个文件</span>`;
     const first = i === 0 ? '&first=1' : '';
     const _apk = ($('apkSelect') ? $('apkSelect').value : '');
     const apkQ = _apk ? '&apk=' + encodeURIComponent(_apk) : '';
@@ -1802,9 +1819,11 @@ async function uploadFsaFolder(list, rootName) {
       return;
     }
   }
-  dz.innerHTML = `已导入文件夹：<b>${rootName}</b>（${list.length} 个文件，已覆盖本地 fsa）<br>` +
+  const skip = bad.length
+    ? `　<span style="color:#f87171">已跳过 ${bad.length} 个非 txt 文件</span>` : '';
+  dz.innerHTML = `已导入文件夹：<b>${rootName}</b>（${good.length} 个 txt，已覆盖本地 fsa）${skip}<br>` +
     `<span style="font-size:11px;color:#4ade80">安装时将自动推送</span>`;
-  toast(`fsa 已导入：${list.length} 个文件`, 'ok');
+  toast(`fsa 已导入：${good.length} 个 txt` + (bad.length ? `（跳过 ${bad.length} 个非 txt）` : ''), 'ok');
   refreshFsaStatus();
 }
 

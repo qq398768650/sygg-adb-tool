@@ -1,19 +1,19 @@
 {
-    "version":  "0.1.21",
-    "notes":  "更新进度可视化：start.bat 启动更新与网页面板「检查更新」都会实时显示下载进度（进度条 + 当前文件 + 百分比 + 已下载大小）",
-    "files":  {
-                  "launcher.exe":  "19ba39e6a8f0d67649000d7cba0ee9f0",
-                  "web/server.py":  "f50d9a7a613c54bdb05cd240fe2964c4",
-                  "web/index.html":  "8b509b4a7263ab2de2b5882b67072a99",
-                  "updater.ps1":  "7de5c8353acbe9a12b6debfff5b991cc",
-                  "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
-                  "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
-                  "scrcpy/avformat-61.dll":  "5b977bb2cc8238e23130e3e009c77e66",
-                  "scrcpy/avutil-59.dll":  "fb69b85010e1d2bfb1b3ff4cef1d5f90",
-                  "scrcpy/libusb-1.0.dll":  "52aac0e3484f68afc550e001bcb7aba6",
-                  "scrcpy/scrcpy.exe":  "b462d800ba714e8e301aa0a6b8dceed8",
-                  "scrcpy/scrcpy-server":  "9153cfe86c4cac296581d022889683af",
-                  "scrcpy/SDL2.dll":  "43b0e7ab01de96ccab97458135f63386",
-                  "scrcpy/swresample-5.dll":  "f337a218595497e1c791a0d63bc728e3"
-              }
+  "version": "0.1.22",
+  "notes": "fsa 数据包只接受 txt：APK 内置解包、zip/文件夹上传、设备推送三处过滤非 txt 文件并在面板/安装日志提示忽略项，避免非 txt 注入导致 App 读取异常",
+  "files": {
+    "launcher.exe": "a97173a461bda3a04190584d7b870ca1",
+    "web/server.py": "5f0ae4aa9a93852124fc63f1086255c1",
+    "web/index.html": "2f7400e2e1340d616a695b2afcd7ae34",
+    "updater.ps1": "7de5c8353acbe9a12b6debfff5b991cc",
+    "start.bat": "7fb836886612fbe6af71f1b3c18fdd53",
+    "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
+    "scrcpy/avformat-61.dll": "5b977bb2cc8238e23130e3e009c77e66",
+    "scrcpy/avutil-59.dll": "fb69b85010e1d2bfb1b3ff4cef1d5f90",
+    "scrcpy/libusb-1.0.dll": "52aac0e3484f68afc550e001bcb7aba6",
+    "scrcpy/scrcpy-server": "9153cfe86c4cac296581d022889683af",
+    "scrcpy/scrcpy.exe": "b462d800ba714e8e301aa0a6b8dceed8",
+    "scrcpy/SDL2.dll": "43b0e7ab01de96ccab97458135f63386",
+    "scrcpy/swresample-5.dll": "f337a218595497e1c791a0d63bc728e3"
+  }
 }

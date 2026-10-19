@@ -20,6 +20,7 @@ import urllib.parse
 import urllib.request
 import hashlib
 import subprocess
+import tempfile
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -596,8 +597,27 @@ def grant_permissions(serial, pkg, declared=None):
 
 
 FSA_IN_APK = "assets/aikit/fsa/"
+# 设备端只接受 .txt：混入其他格式会导致 App 读取异常，导入/解包/推送三处都要过滤
+FSA_EXT = ".txt"
 # 本地 fsa 属于哪个 APK 的记录（防止把上一个 APK 遗留的 fsa 误当成当前 APK 的）
 FSA_META = os.path.join(PROJECT_DIR, ".fsa_meta.json")
+
+
+def is_fsa_file(name):
+    """.txt 才是有效 fsa 数据；.meta 是本地标记文件，单独忽略。"""
+    return (name or "").lower().endswith(FSA_EXT)
+
+
+def fsa_bad_files(fsa_dir):
+    """列出目录里的非 .txt 文件（相对路径），用于拦截/告警。"""
+    bad = []
+    for root, _dirs, fns in os.walk(fsa_dir):
+        for fn in fns:
+            if fn.lower().endswith(".meta"):
+                continue
+            if not is_fsa_file(fn):
+                bad.append(os.path.relpath(os.path.join(root, fn), fsa_dir).replace("\\", "/"))
+    return bad
 
 
 def read_fsa_meta():
@@ -619,22 +639,31 @@ def write_fsa_meta(apk_name):
 
 
 
-def fsa_in_apk_count(apk_path):
-    """统计 APK 内 assets/aikit/fsa/ 下的文件数；读不到返回 None。"""
-    try:
-        with zipfile.ZipFile(apk_path) as z:
-            return sum(1 for n in z.namelist()
-                       if n.startswith(FSA_IN_APK) and not n.endswith("/"))
-    except Exception:
-        return None
-
-
-def extract_fsa_from_apk(apk_path):
-    """把 APK 内的 assets/aikit/fsa/ 解包到临时目录，返回解包后的 fsa 目录；没有则 None。"""
+def fsa_in_apk_report(apk_path):
+    """扫描 APK 内置 fsa：返回 (有效 txt 数, 非 txt 文件名列表)；读不到返回 (None, [])。"""
     try:
         with zipfile.ZipFile(apk_path) as z:
             names = [n for n in z.namelist()
                      if n.startswith(FSA_IN_APK) and not n.endswith("/")]
+        txt = [n for n in names if is_fsa_file(n)]
+        bad = [n[len(FSA_IN_APK):] for n in names if not is_fsa_file(n)]
+        return len(txt), bad
+    except Exception:
+        return None, []
+
+
+def extract_fsa_from_apk(apk_path):
+    """把 APK 内的 assets/aikit/fsa/ 解包到临时目录，返回解包后的 fsa 目录；没有则 None。
+    只解 .txt：其他格式设备读不了，解出来也只会把设备目录弄脏。"""
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            names = [n for n in z.namelist()
+                     if n.startswith(FSA_IN_APK) and not n.endswith("/")]
+            bad = [n[len(FSA_IN_APK):] for n in names if not is_fsa_file(n)]
+            if bad:
+                print("[fsa] APK 内置 fsa 含 %d 个非 txt 文件，已跳过：%s"
+                      % (len(bad), ", ".join(bad[:5])))
+            names = [n for n in names if is_fsa_file(n)]
             if not names:
                 return None
             tag = os.path.splitext(os.path.basename(apk_path))[0]
@@ -655,9 +684,32 @@ def extract_fsa_from_apk(apk_path):
 
 
 def push_fsa_dir(serial, fsa_src, log, step):
-    """先确认并清空设备上的 fsa 目录（防污染/残留），再注入，最后校验文件数。"""
+    """先确认并清空设备上的 fsa 目录（防污染/残留），再注入，最后校验文件数。
+    设备只认 .txt：源目录混入其他格式时先过滤到临时目录（目录名保持 fsa）。"""
     dev_targets = ["/sdcard/aikit/esr/fsa", "/sdcard/aikit/fsa"]
+    tmp_root = None
     try:
+        bad = fsa_bad_files(fsa_src)
+        if bad:
+            log(serial, f"       [fsa] 源目录含 {len(bad)} 个非 txt 文件，已过滤：{', '.join(bad[:5])}")
+            tmp_root = tempfile.mkdtemp(prefix="fsa_txt_")
+            filtered = os.path.join(tmp_root, "fsa")
+            txt_n = 0
+            for root, _dirs, fns in os.walk(fsa_src):
+                for fn in fns:
+                    if not is_fsa_file(fn):
+                        continue
+                    src_p = os.path.join(root, fn)
+                    rel = os.path.relpath(src_p, fsa_src)
+                    dst_p = os.path.join(filtered, rel)
+                    os.makedirs(os.path.dirname(dst_p), exist_ok=True)
+                    shutil.copy2(src_p, dst_p)
+                    txt_n += 1
+            if not txt_n:
+                log(serial, "       [fsa] 源目录里没有 .txt 文件，跳过注入")
+                step(serial, "fsapush", False)
+                return False
+            fsa_src = filtered
         # ---- 1) 检查设备现有 fsa 目录是否被污染/残留 ----
         for d in dev_targets:
             rc, out = adb_shell(serial, ["shell", "ls", "-A", d], timeout=30)
@@ -693,6 +745,9 @@ def push_fsa_dir(serial, fsa_src, log, step):
         log(serial, f"       fsa push error: {e}")
         step(serial, "fsapush", False)
         return False
+    finally:
+        if tmp_root:
+            shutil.rmtree(tmp_root, ignore_errors=True)
 
 
 def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
@@ -771,6 +826,10 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         # ---- [1.5] push fsa 数据文件夹到 /sdcard/aikit/esr/fsa ----
         # 优先用 APK 内置的 assets/aikit/fsa；没有再用本地 fsa（手动上传）；都没有则提示手动上传
         log(serial, "       Pushing fsa folder...")
+        _apk_txt, _apk_bad = fsa_in_apk_report(apk)
+        if _apk_bad:
+            log(serial, f"       [WARN] APK 内置 fsa 含 {len(_apk_bad)} 个非 txt 文件，已忽略（设备只接受 txt）："
+                        f"{', '.join(_apk_bad[:5])}")
         fsa_src = extract_fsa_from_apk(apk)
         fsa_from = "APK 内置 assets/aikit/fsa"
         if not fsa_src:
@@ -1971,29 +2030,32 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/fsa_status":
             fsa_dir = os.path.join(PROJECT_DIR, "fsa")
-            files = []
+            files, bad = [], []
             if os.path.isdir(fsa_dir):
                 for root, _dirs, fnames in os.walk(fsa_dir):
                     for fn in fnames:
                         if fn.lower().endswith(".meta"):
                             continue
-                        files.append(os.path.relpath(
-                            os.path.join(root, fn), fsa_dir).replace("\\", "/"))
+                        rel = os.path.relpath(
+                            os.path.join(root, fn), fsa_dir).replace("\\", "/")
+                        (files if is_fsa_file(fn) else bad).append(rel)
             # 顺便报告当前选中 APK 是否内置 assets/aikit/fsa
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
             apk_name = os.path.basename((q.get("apk") or [""])[0])
-            apk_has_fsa, apk_fsa_count = None, 0
+            apk_has_fsa, apk_fsa_count, apk_fsa_bad = None, 0, []
             if apk_name:
                 apk_path = os.path.join(PROJECT_DIR, apk_name)
                 if os.path.isfile(apk_path):
-                    n = fsa_in_apk_count(apk_path)
+                    n, ab = fsa_in_apk_report(apk_path)
                     if n is not None:
-                        apk_has_fsa, apk_fsa_count = n > 0, n
+                        apk_has_fsa, apk_fsa_count, apk_fsa_bad = n > 0, n, ab
             self._send(200, {"exists": os.path.isdir(fsa_dir),
                              "count": len(files), "files": files[:200],
+                             "bad_count": len(bad), "bad_files": bad[:50],
                              "apk": apk_name,
                              "apk_has_fsa": apk_has_fsa,
                              "apk_fsa_count": apk_fsa_count,
+                             "apk_fsa_bad": apk_fsa_bad[:50],
                              "local_apk": read_fsa_meta().get("apk", ""),
                              "local_for_apk": bool(apk_name and read_fsa_meta().get("apk") == apk_name)})
             return
@@ -2224,6 +2286,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not names:
                     self._send(400, {"error": "zip is empty"})
                     return
+                skipped = [n.replace("\\", "/") for n in names if not is_fsa_file(n)]
+                names = [n for n in names if is_fsa_file(n)]
+                if not names:
+                    self._send(400, {"error": "zip 内没有 .txt 文件（设备只接受 txt，其他格式会读取异常）",
+                                     "skipped_count": len(skipped)})
+                    return
                 # 整个 zip 只包含一个顶层 fsa/ 目录时剥掉该前缀
                 prefix = ""
                 if all(n.replace("\\", "/").split("/", 1)[0] == "fsa"
@@ -2246,7 +2314,8 @@ class Handler(BaseHTTPRequestHandler):
                     count += 1
                 _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 write_fsa_meta((_q.get("apk") or [""])[0])
-                self._send(200, {"ok": True, "files": count})
+                self._send(200, {"ok": True, "files": count,
+                                 "skipped_count": len(skipped), "skipped": skipped[:50]})
             except Exception as e:
                 self._send(400, {"error": str(e)})
             return
@@ -2267,7 +2336,7 @@ class Handler(BaseHTTPRequestHandler):
             if not rel or ".." in rel.split("/"):
                 self._send(400, {"error": "invalid rel path"})
                 return
-            if rel.lower().endswith(".meta"):
+            if rel.lower().endswith(".meta") or not is_fsa_file(rel):
                 self._send(200, {"ok": True, "rel": rel, "skipped": True})
                 return
             try:

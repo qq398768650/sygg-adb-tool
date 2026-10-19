@@ -147,16 +147,19 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 ### 6.3 fsa 数据
 优先级：**APK 内置 `assets/aikit/fsa/`** → 本地 `fsa/`（仅当 `.fsa_meta.json` 记录的归属 APK 与当前 APK 一致）→ 都没有则告警跳过。
 
-- `fsa_in_apk_count(apk)` / `extract_fsa_from_apk(apk)`：解包到 `.fsa_from_apk/<apk名>/fsa/`
-- `push_fsa_dir(serial, fsa_src, log, step)`：先 `ls` 检查并 `rm -rf` 设备上的 `/sdcard/aikit/esr/fsa` 和 `/sdcard/aikit/fsa`（防污染）→ push → `find` 校验文件数一致
+**设备只认 `.txt`**：APK 解包、zip/文件夹上传、推送三处都会过滤非 txt 文件（扩展名大小写不敏感），并在面板/安装日志提示被忽略的文件。别放宽这条——混入其他格式会让 App 读取异常。
+
+- `fsa_in_apk_report(apk)` / `extract_fsa_from_apk(apk)`：扫描 APK 内置 fsa，只解包 `.txt` 到 `.fsa_from_apk/<apk名>/fsa/`
+- `fsa_bad_files(dir)`：列出目录内非 `.txt` 文件（`.meta` 除外）
+- `push_fsa_dir(serial, fsa_src, log, step)`：源目录混入非 txt 时先过滤到临时目录（目录名保持 `fsa`）；再 `ls` 检查并 `rm -rf` 设备上的 `/sdcard/aikit/esr/fsa` 和 `/sdcard/aikit/fsa`（防污染）→ push → `find` 校验文件数一致
 - `.fsa_meta.json` 记录本地 fsa 属于哪个 APK，防止把上个 APK 的 fsa 误用
 
 ### 6.4 scrcpy 投屏
 `find_scrcpy()` 优先项目内 `scrcpy/scrcpy.exe`（否则 PATH 里可能命中别的版本）；`launch_scrcpy()` 用项目自带 adb（`env["ADB"]`），`DETACHED_PROCESS` 启动。
 
 ### 6.5 更新
-`read_local_version()` / `fetch_remote_version()` / `run_updater_ps1()`；
-路由：`GET /api/version`、`GET /api/check_update`、`POST /api/update`、`POST /api/restart`。
+`read_local_version()` / `fetch_remote_version()` / `start_update()` / `_update_worker()`；
+路由：`GET /api/version`、`GET /api/check_update`、`POST /api/update`（异步，立即返回 `started`）、`GET /api/update_status`（进度 + 日志）、`POST /api/restart`。
 
 ---
 
