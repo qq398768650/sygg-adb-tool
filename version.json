@@ -1,9 +1,9 @@
 {
-    "version":  "0.1.14",
-    "notes":  "更新检查加时间戳绕过镜像缓存：刚发布后镜像仍返回旧 version.json，导致「检查更新」看不到新版本",
+    "version":  "0.1.15",
+    "notes":  "修复更新后自动重启：清理 PyInstaller 的 _PYI_* 环境变量，避免重启后启动器立即退出；/api/restart 实测 10 秒内恢复",
     "files":  {
-                  "launcher.exe":  "b34e58e80ec01f6dd346ce4e52a8a078",
-                  "web/server.py":  "1cc3bc050d438234fbf244030055f2a6",
+                  "launcher.exe":  "ad1075408743176f2f84cafe44197b80",
+                  "web/server.py":  "49e930d383791167c925f11782bf904d",
                   "web/index.html":  "15aff2753462af28239b5c9df47b8a7f",
                   "updater.ps1":  "a078d6e25a42af1e821e5e7fabf41795",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",

@@ -35,3 +35,4 @@ desktop.ini
 .DS_Store
 
 _restart_helper.ps1
+_restart_helper.log
