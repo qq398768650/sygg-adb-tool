@@ -1,5 +1,5 @@
 ﻿# 在线更新：比对远端 version.json，逐文件校验 MD5，只下载有变化的文件
-# 由 start.bat（启动前）与网页「检查更新」调用；更新失败不阻断启动。
+# 由 启动.bat（启动前）与网页「检查更新」调用；更新失败不阻断启动。
 # 多镜像：version.json 取各镜像中版本号最高者；文件下载逐个镜像校验 MD5，命中才采用。
 $ErrorActionPreference = 'SilentlyContinue'
 # Windows PowerShell 5.1 默认可能还在用 TLS1.0，GitHub / 镜像都会直接失败
@@ -28,7 +28,7 @@ $utf8NoBom = New-Object Text.UTF8Encoding $false
 $script:updIndex = 0
 $script:updCount = 0
 
-# 进度同时写控制台（start.bat 双击可见）和 .update.progress.json（网页轮询可见）
+# 进度同时写控制台（启动.bat 双击可见）和 .update.progress.json（网页轮询可见）
 function Write-Log([string]$msg, [string]$color = '') {
     if ($color) { Write-Host $msg -ForegroundColor $color } else { Write-Host $msg }
     try { [IO.File]::AppendAllText($logFile, "$msg`r`n", $utf8NoBom) } catch {}
@@ -102,9 +102,11 @@ function Compare-Ver([string]$a, [string]$b) {
 # 依次尝试各镜像把 $rel 下载到 $dest；若给了 $want，则要求 MD5 命中才返回 $true
 # （避免某个镜像缓存旧文件被误用）。用 .NET 流式下载，边下边报进度。
 function Get-Remote([string]$rel, [string]$dest, [string]$want = '', [int]$maxTime = 180) {
+    # 文件名可能含中文（如 启动.bat），URL 路径必须转义，否则请求直接失败
+    $relEsc = [uri]::EscapeDataString($rel) -replace '%2F', '/'
     foreach ($m in $mirrors) {
         Remove-Item -LiteralPath $dest -Force
-        $req = [Net.HttpWebRequest]::Create("$m/${rel}?t=$ts")
+        $req = [Net.HttpWebRequest]::Create("$m/${relEsc}?t=$ts")
         $req.Timeout = 15000
         $req.ReadWriteTimeout = $maxTime * 1000
         $req.UserAgent = 'sygg-updater'

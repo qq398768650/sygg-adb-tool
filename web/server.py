@@ -3,7 +3,7 @@
 批量 ADB 安装工具 (Web 版)
 Python 后端: HTTP 服务 + 真并行 adb 安装 + 实时状态
 
-运行:  python server.py   (或双击 start.bat)
+运行:  python server.py   (或双击 启动.bat)
 前端:  http://127.0.0.1:8765/
 """
 import os

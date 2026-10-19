@@ -76,7 +76,7 @@ $files = [ordered]@{
     'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
     'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
     'updater.ps1'    = (Get-Md5 (Join-Path $root 'updater.ps1'))
-    'start.bat'      = (Get-Md5 (Join-Path $root 'start.bat'))
+    '启动.bat'       = (Get-Md5 (Join-Path $root '启动.bat'))
 }
 # 内置 scrcpy（精简版）：纳入更新清单，老客户端更新时会自动补齐 scrcpy/ 目录
 $scrcpyDir = Join-Path $root 'scrcpy'
@@ -116,7 +116,7 @@ $env:HTTPS_PROXY = $proxy
 $env:HTTP_PROXY  = $proxy
 $tag     = "v$version"
 $relBody = "$Note`r`n`r`n### 文件`r`n" + (($obj.files.GetEnumerator() | ForEach-Object { "- ``$($_.Key)`` — ``$($_.Value)``" }) -join "`r`n")
-$relBody += "`r`n`r`n> 客户端无需手动下载，运行 ``start.bat`` 会自动更新到本版本。"
+$relBody += "`r`n`r`n> 客户端无需手动下载，运行 ``启动.bat`` 会自动更新到本版本。"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 & gh release create $tag --repo $repoSlug --title $tag --notes $relBody 2>&1 | Out-Host
@@ -126,7 +126,7 @@ $ErrorActionPreference = $prevEap
 # 让 jsDelivr 立即刷新缓存（否则镜像可能最长 12 小时才更新）
 Write-Host '[release] 刷新 jsDelivr 缓存 ...' -ForegroundColor Cyan
 $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-foreach ($f in @('version.json','CHANGELOG.md','launcher.exe','web/server.py','web/index.html','updater.ps1','start.bat')) {
+foreach ($f in @('version.json','CHANGELOG.md','launcher.exe','web/server.py','web/index.html','updater.ps1','启动.bat')) {
     & $curl -s -o NUL "https://purge.jsdelivr.net/gh/$repoSlug@main/$f" | Out-Null
 }
 

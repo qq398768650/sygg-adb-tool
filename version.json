@@ -1,12 +1,12 @@
 {
-  "version": "0.1.22",
-  "notes": "fsa 数据包只接受 txt：APK 内置解包、zip/文件夹上传、设备推送三处过滤非 txt 文件并在面板/安装日志提示忽略项，避免非 txt 注入导致 App 读取异常",
+  "version": "0.1.23",
+  "notes": "启动入口改名为「启动.bat」（中文名，上线时会自动下载）；移除仓库里的 Excel 模板文件；updater 支持中文文件名 URL 转义",
   "files": {
-    "launcher.exe": "a97173a461bda3a04190584d7b870ca1",
-    "web/server.py": "5f0ae4aa9a93852124fc63f1086255c1",
+    "launcher.exe": "f973bb1140f47e7ee403e153892b1385",
+    "web/server.py": "22c7984f6ea282d97dd4179f7eff889a",
     "web/index.html": "2f7400e2e1340d616a695b2afcd7ae34",
-    "updater.ps1": "7de5c8353acbe9a12b6debfff5b991cc",
-    "start.bat": "7fb836886612fbe6af71f1b3c18fdd53",
+    "updater.ps1": "d37e10044fb90d601e8b1eed2af8b985",
+    "启动.bat": "7fb836886612fbe6af71f1b3c18fdd53",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
     "scrcpy/avformat-61.dll": "5b977bb2cc8238e23130e3e009c77e66",
     "scrcpy/avutil-59.dll": "fb69b85010e1d2bfb1b3ff4cef1d5f90",

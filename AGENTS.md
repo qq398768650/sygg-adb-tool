@@ -10,7 +10,7 @@ Windows 上的 **ADB 批量安装工具**：
 
 - 后端：`web/server.py`（标准库 `http.server`），打包成 `launcher.exe`（PyInstaller onefile）
 - 前端：`web/index.html`（单页，浏览器打开 `http://127.0.0.1:8765/`）
-- 启动：`start.bat` → `updater.ps1`（在线更新）→ 后台拉起 `launcher.exe`（隐藏控制台 + 打开浏览器）
+- 启动：`启动.bat` → `updater.ps1`（在线更新）→ 后台拉起 `launcher.exe`（隐藏控制台 + 打开浏览器）
 
 功能：批量装 APK、注入 fsa 数据、配 WiFi、采集 MAC/序列号、抓 deviceId、批量重启/关机、scrcpy 投屏、蓝牙配对、ADB 终端、日志查看。
 
@@ -25,7 +25,7 @@ Windows 上的 **ADB 批量安装工具**：
 | `web/server.py` | **后端全部逻辑**：HTTP 路由、adb 调用、APK 解析、fsa 注入、更新器调用 |
 | `web/index.html` | **前端单页**：所有 UI + JS。运行时从磁盘读，改完刷新即生效 |
 | `launcher.exe` | PyInstaller onefile，**内嵌 `web/server.py`** |
-| `start.bat` | 启动入口（GBK 编码）：杀旧进程 → 跑 `updater.ps1` → 后台启动 launcher |
+| `启动.bat` | 启动入口（GBK 编码）：杀旧进程 → 跑 `updater.ps1` → 后台启动 launcher |
 | `updater.ps1` | 在线更新（UTF-8 **带 BOM**） |
 | `release.ps1` | 一键发布 |
 | `version.json` | 当前版本号 + 每个受管文件的 MD5 |
