@@ -113,23 +113,69 @@ def fetch_remote_version(timeout=20):
     raise RuntimeError("无法获取远端版本：%s" % last_err)
 
 
-def run_updater_ps1():
-    """调用项目根目录的 updater.ps1 执行在线更新，返回 (ok, 文本输出, 退出码)。
+# ---------- 在线更新任务（后台跑 updater.ps1，前端轮询进度） ----------
+UPDATE_PROGRESS_FILE = os.path.join(PROJECT_DIR, ".update.progress.json")
+UPDATE_LOG_FILE = os.path.join(PROJECT_DIR, ".update.log")
+UPDATE_STATE = {"running": False, "done": True, "ok": False, "rc": None,
+                "deferred": False, "error": "", "started": 0.0}
+
+
+def _read_update_progress():
+    """读取 updater.ps1 写出的进度 JSON（不存在/写了一半时返回 None）。"""
+    try:
+        with open(UPDATE_PROGRESS_FILE, "r", encoding="utf-8-sig") as f:
+            return json.load(f)
+    except Exception:
+        return None
+
+
+def _read_update_log(limit=6000):
+    try:
+        with open(UPDATE_LOG_FILE, "r", encoding="utf-8-sig", errors="replace") as f:
+            return f.read()[-limit:]
+    except Exception:
+        return ""
+
+
+def _update_worker():
+    script = os.path.join(PROJECT_DIR, "updater.ps1")
+    rc = -1
+    err = ""
+    try:
+        p = subprocess.run(
+            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
+            cwd=PROJECT_DIR, capture_output=True, timeout=1800,
+        )
+        rc = p.returncode
+    except Exception as e:
+        err = str(e)
+    with LOCK:
+        UPDATE_STATE.update({"running": False, "done": True, "rc": rc,
+                             "ok": rc == 0, "deferred": rc == 2, "error": err})
+
+
+def start_update():
+    """后台启动 updater.ps1；返回 False 表示已有任务在跑。
 
     updater.ps1 的退出码约定：0=成功/已最新，1=部分失败，2=主程序已下载但需重启才生效。
     """
     script = os.path.join(PROJECT_DIR, "updater.ps1")
-    if not os.path.isfile(script):
-        return False, "未找到 updater.ps1（请在项目根目录运行）", -1
-    try:
-        p = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
-            cwd=PROJECT_DIR, capture_output=True, timeout=300,
-        )
-        out = (p.stdout or b"").decode("gbk", "replace") + (p.stderr or b"").decode("gbk", "replace")
-        return p.returncode == 0, out.strip(), p.returncode
-    except Exception as e:
-        return False, "更新脚本执行失败：%s" % e, -1
+    with LOCK:
+        if UPDATE_STATE["running"]:
+            return False
+        if not os.path.isfile(script):
+            UPDATE_STATE.update({"running": False, "done": True, "ok": False, "rc": -1,
+                                 "deferred": False, "error": "未找到 updater.ps1（请在项目根目录运行）"})
+            return True
+        UPDATE_STATE.update({"running": True, "done": False, "ok": False, "rc": None,
+                             "deferred": False, "error": "", "started": time.time()})
+    for p in (UPDATE_PROGRESS_FILE, UPDATE_LOG_FILE):
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+    threading.Thread(target=_update_worker, daemon=True).start()
+    return True
 
 # ---------- APK 包名 / 启动 Activity 解析（纯 Python 解析二进制 AndroidManifest.xml，不依赖 aapt） ----------
 def _axml_strings(data, base):
@@ -1862,6 +1908,14 @@ class Handler(BaseHTTPRequestHandler):
                              "has_update": has_update,
                              "changed": changed, "notes": remote.get("notes", "")})
             return
+        if path == "/api/update_status":
+            with LOCK:
+                st = dict(UPDATE_STATE)
+            st["progress"] = _read_update_progress()
+            st["log"] = _read_update_log()
+            st["version"] = read_local_version().get("version", "")
+            self._send(200, st)
+            return
         if path == "/api/apks":
             apks = [f for f in os.listdir(PROJECT_DIR)
                     if f.lower().endswith(".apk")]
@@ -2072,9 +2126,10 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path.split("?")[0] == "/api/update":
-            ok, out, rc = run_updater_ps1()
-            self._send(200, {"ok": ok, "deferred": rc == 2, "log": out,
-                             "version": read_local_version().get("version", "")})
+            if not start_update():
+                self._send(200, {"ok": False, "running": True, "error": "更新正在进行中"})
+                return
+            self._send(200, {"ok": True, "started": True})
             return
         if self.path.split("?")[0] == "/api/restart":
             # 重启主程序：本进程退出，由后台助手等 launcher.exe 替换完成后重新拉起

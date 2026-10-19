@@ -95,6 +95,15 @@
   }
   .ver-btn:hover{ color:#fff; border-color:#3E5070; background:rgba(148,163,184,.08); }
   .ver-btn:disabled{ opacity:.45; cursor:default; }
+  /* 在线更新进度（只在更新时出现） */
+  .upd-prog{ display:none; align-items:center; gap:7px; min-width:0; }
+  .upd-prog.on{ display:flex; }
+  .upd-bar{ width:76px; height:6px; border-radius:99px; background:rgba(148,163,184,.2); overflow:hidden; flex:none; }
+  .upd-bar i{ display:block; height:100%; width:0; background:var(--accent); transition:width .2s linear; }
+  .upd-txt{
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+    max-width:230px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
 
   /* ---------- 布局 ---------- */
   .cols{ display:grid; grid-template-columns:minmax(0,1.32fr) minmax(0,1fr); gap:16px; align-items:stretch; }
@@ -560,6 +569,10 @@
       </div>
     </div>
     <div class="topbar-right">
+      <div class="upd-prog" id="updProg">
+        <div class="upd-bar"><i id="updBar"></i></div>
+        <span class="upd-txt" id="updTxt"></span>
+      </div>
       <span class="ver-tag" id="verTag" title="点击检查更新">v…</span>
       <button class="ver-btn" id="checkUpdateBtn">检查更新</button>
       <button class="theme-btn" id="themeBtn" title="切换到浅色" aria-label="切换主题"></button>
@@ -837,13 +850,57 @@ async function checkUpdate() {
   }
 }
 
-// 执行在线更新（调用后端 updater.ps1）
+// ---------- 在线更新进度 ----------
+function showUpdProgress(on) {
+  $('updProg').classList.toggle('on', !!on);
+  if (!on) { $('updBar').style.width = '0'; $('updTxt').textContent = ''; }
+}
+
+function renderUpdProgress(st) {
+  const p = (st && st.progress) || {};
+  let pct = Number(p.overall);
+  if (!isFinite(pct)) pct = 0;
+  if (st && st.done) pct = 100;
+  pct = Math.max(0, Math.min(100, Math.round(pct)));
+  $('updBar').style.width = pct + '%';
+  let txt;
+  if (p.phase === 'download' && p.file) txt = `[${p.index || 1}/${p.count || 1}] ${p.file} ${p.pct || 0}%`;
+  else txt = p.msg || (st && st.running ? '准备更新…' : '');
+  $('updTxt').textContent = (st && st.running ? pct + '%  ' : '') + txt;
+  $('updProg').title = (st && st.log ? st.log.slice(-1500) : '');
+}
+
+// 轮询后台更新任务直到结束（最长约 30 分钟），返回最终状态
+async function watchUpdate() {
+  let st = null;
+  for (let i = 0; i < 4500; i++) {
+    await new Promise(r => setTimeout(r, 400));
+    try { st = await api('update_status'); } catch (e) { continue; }
+    renderUpdProgress(st);
+    if (!st.running) return st;
+  }
+  return null;
+}
+
+// 执行在线更新（后端后台跑 updater.ps1，这里轮询进度）
 async function doUpdate() {
   const btn = $('checkUpdateBtn'), old = btn.textContent;
+  let st = null;
   btn.disabled = true; btn.textContent = '更新中…';
+  showUpdProgress(true);
   try {
     const d = await api('update', { method: 'POST' });
-    if (d.deferred) {
+    if (!d.ok) { toast('更新未开始：' + (d.error || '未知错误'), 'err', 5000); return; }
+    if (d.started) {
+      st = await watchUpdate();
+    } else {
+      // 兼容旧版后端：同步跑完才返回，没有进度可轮询
+      st = { ok: !!d.ok, deferred: !!d.deferred, done: true, running: false,
+             error: d.ok ? '' : '更新脚本返回失败（旧版后端）' };
+      $('updTxt').textContent = '更新中（旧版后端无进度）…';
+    }
+    if (!st) { toast('更新超时，请查看项目目录下的 .update.log', 'err', 8000); return; }
+    if (st.deferred) {
       // 主程序 launcher.exe 正在运行、无法直接替换：重启后生效
       btn.textContent = '重启中…';
       toast('主程序已下载，正在重启…', 'ok', 6000);
@@ -855,17 +912,18 @@ async function doUpdate() {
       toast('重启较慢，请手动双击 start.bat 启动', 'err', 8000);
       return;
     }
-    if (d.ok) {
+    if (st.ok) {
       toast('更新完成，页面即将刷新', 'ok', 5000);
       loadVersion();
       setTimeout(() => location.reload(), 1200);
     } else {
-      toast('更新未完成：请稍后重试或查看日志', 'err', 6500);
+      toast('更新未完成：' + (st.error || '部分文件失败，请稍后重试'), 'err', 7000);
     }
   } catch (e) {
     toast('更新失败：' + e, 'err');
   } finally {
     btn.disabled = false; btn.textContent = old;
+    setTimeout(() => showUpdProgress(false), st && st.ok ? 300 : 4000);
   }
 }
 
@@ -2139,6 +2197,19 @@ adbDevices();
 $('checkUpdateBtn').onclick = checkUpdate;
 $('verTag').onclick = checkUpdate;
 loadVersion();
+
+// 页面刷新后若后台仍在更新，接着显示进度
+(async function resumeUpdate() {
+  try {
+    const st = await api('update_status');
+    if (st && st.running) {
+      showUpdProgress(true); renderUpdProgress(st);
+      const fin = await watchUpdate();
+      loadVersion();
+      if (fin && (fin.ok || fin.deferred)) setTimeout(() => location.reload(), 800);
+    }
+  } catch (e) {}
+})();
 
 init();
 refreshStatus();

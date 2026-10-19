@@ -1,11 +1,11 @@
 {
-    "version":  "0.1.20",
-    "notes":  "新增浅色皮肤，右上角一键切换（记忆上次选择）；深色仍为默认",
+    "version":  "0.1.21",
+    "notes":  "更新进度可视化：start.bat 启动更新与网页面板「检查更新」都会实时显示下载进度（进度条 + 当前文件 + 百分比 + 已下载大小）",
     "files":  {
-                  "launcher.exe":  "99b0b1569663d99e30c67e1ce67d685c",
-                  "web/server.py":  "560ec9fccf7053e9cce0a0b752b94ea8",
-                  "web/index.html":  "d73f06047b09be4756829341572998fa",
-                  "updater.ps1":  "a078d6e25a42af1e821e5e7fabf41795",
+                  "launcher.exe":  "19ba39e6a8f0d67649000d7cba0ee9f0",
+                  "web/server.py":  "f50d9a7a613c54bdb05cd240fe2964c4",
+                  "web/index.html":  "8b509b4a7263ab2de2b5882b67072a99",
+                  "updater.ps1":  "7de5c8353acbe9a12b6debfff5b991cc",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
                   "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
                   "scrcpy/avformat-61.dll":  "5b977bb2cc8238e23130e3e009c77e66",
