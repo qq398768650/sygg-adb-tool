@@ -473,12 +473,24 @@ async function doUpdate() {
   btn.disabled = true; btn.textContent = '更新中…';
   try {
     const d = await api('update', { method: 'POST' });
+    if (d.deferred) {
+      // 主程序 launcher.exe 正在运行、无法直接替换：重启后生效
+      btn.textContent = '重启中…';
+      toast('主程序已下载，正在重启…', 'ok', 6000);
+      try { await api('restart', { method: 'POST' }); } catch (e) {}
+      for (let i = 0; i < 60; i++) {
+        await new Promise(r => setTimeout(r, 1000));
+        try { const v = await api('version'); if (v && v.version) { location.reload(); return; } } catch (e) {}
+      }
+      toast('重启较慢，请手动双击 start.bat 启动', 'err', 8000);
+      return;
+    }
     if (d.ok) {
       toast('更新完成，页面即将刷新', 'ok', 5000);
       loadVersion();
       setTimeout(() => location.reload(), 1200);
     } else {
-      toast('更新未完成：主程序可能被占用，请关闭窗口后用 start.bat 重启完成更新', 'err', 6500);
+      toast('更新未完成：请稍后重试或查看日志', 'err', 6500);
     }
   } catch (e) {
     toast('更新失败：' + e, 'err');

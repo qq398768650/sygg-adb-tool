@@ -128,14 +128,17 @@ if ($failed) {
     exit 1
 }
 
-# 全部文件均为最新且无待生效项后才写 version.json，避免版本号虚高
-if (-not $deferred) {
-    try { [IO.File]::WriteAllText($localVer, ($remote | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false)) } catch {}
+# 有文件待生效（正在运行的 launcher.exe 被占用）时不写 version.json，
+# 避免版本号虚高导致下次误判"已是最新"、主程序永远换不掉。
+if ($deferred) {
+    Write-Host '[update] 主程序已下载，重启后生效。' -ForegroundColor Yellow
+    exit 2
 }
 
-if ($deferred) {
-    Write-Host '[update] 部分文件将在程序退出后自动生效，请关闭窗口后重新运行 start.bat。' -ForegroundColor Yellow
-} elseif ($changed) {
+# 全部文件均为最新后才写 version.json
+try { [IO.File]::WriteAllText($localVer, ($remote | ConvertTo-Json -Depth 6), (New-Object Text.UTF8Encoding $false)) } catch {}
+
+if ($changed) {
     Write-Host '[update] 更新完成。' -ForegroundColor Green
 } else {
     Write-Host "[update] 已是最新版本 $($remote.version)"

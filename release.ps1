@@ -9,21 +9,31 @@ Set-Location $root
 $repoSlug = 'qq398768650/sygg-adb-tool'
 $proxy    = 'http://127.0.0.1:7897'
 
-Write-Host '[release] 重新打包 launcher.exe ...' -ForegroundColor Cyan
-if (Test-Path launcher.exe.bak) { Remove-Item launcher.exe.bak -Force }
-if (Test-Path launcher.exe) { Move-Item launcher.exe launcher.exe.bak -Force }
-if (Test-Path build_tmp) { Remove-Item build_tmp -Recurse -Force }
+# 仅在 web/server.py 有改动时才重打包（launcher.exe 内嵌 server.py；index.html 等由磁盘读取）
+$needBuild = $true
+if (Test-Path (Join-Path $root 'launcher.exe')) {
+    & git -C $root diff --quiet HEAD -- web/server.py 2>$null
+    if ($LASTEXITCODE -eq 0) { $needBuild = $false }
+}
+if ($needBuild) {
+    Write-Host '[release] 重新打包 launcher.exe ...' -ForegroundColor Cyan
+    if (Test-Path launcher.exe.bak) { Remove-Item launcher.exe.bak -Force }
+    if (Test-Path launcher.exe) { Move-Item launcher.exe launcher.exe.bak -Force }
+    if (Test-Path build_tmp) { Remove-Item build_tmp -Recurse -Force }
 
-$pyArgs = @('--onefile','--name','launcher',
-    '--distpath',"$root\build_tmp\dist",
-    '--workpath',"$root\build_tmp\build",
-    '--specpath',"$root\build_tmp",
-    '--noconfirm',"$root\web\server.py")
-$built = $false
-try { python -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
-if (-not $built) { pyinstaller @pyArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'pyinstaller 打包失败' } }
+    $pyArgs = @('--onefile','--name','launcher',
+        '--distpath',"$root\build_tmp\dist",
+        '--workpath',"$root\build_tmp\build",
+        '--specpath',"$root\build_tmp",
+        '--noconfirm',"$root\web\server.py")
+    $built = $false
+    try { python -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
+    if (-not $built) { pyinstaller @pyArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'pyinstaller 打包失败' } }
 
-Copy-Item "$root\build_tmp\dist\launcher.exe" "$root\launcher.exe" -Force
+    Copy-Item "$root\build_tmp\dist\launcher.exe" "$root\launcher.exe" -Force
+} else {
+    Write-Host '[release] web/server.py 未变，沿用现有 launcher.exe（跳过重打包）' -ForegroundColor DarkGray
+}
 
 # 确保 .ps1 带 UTF-8 BOM（编辑器保存常会丢 BOM，Windows PowerShell 5.1 无 BOM 会解析中文报错）
 $utf8 = New-Object Text.UTF8Encoding $true
