@@ -1,6 +1,6 @@
 {
-    "version":  "0.1.15",
-    "notes":  "修复更新后自动重启：清理 PyInstaller 的 _PYI_* 环境变量，避免重启后启动器立即退出；/api/restart 实测 10 秒内恢复",
+    "version":  "0.1.16",
+    "notes":  "更新后自动重启：延迟替换场景端到端验证",
     "files":  {
                   "launcher.exe":  "ad1075408743176f2f84cafe44197b80",
                   "web/server.py":  "49e930d383791167c925f11782bf904d",
