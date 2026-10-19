@@ -36,3 +36,5 @@ desktop.ini
 
 _restart_helper.ps1
 _restart_helper.log
+.fsa_from_apk/
+.fsa_meta.json

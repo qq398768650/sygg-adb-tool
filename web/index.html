@@ -215,7 +215,7 @@
     <div id="fsaStatus" style="font-size:13px;margin-bottom:8px">检查中...</div>
     <div class="dropzone" id="fsaDz" style="padding:14px">
       将 <b>fsa 文件夹</b>拖到此处，或 <span class="sel">点击选择文件夹</span>
-      <br><span style="font-size:11px;color:#94a3b8">上传后覆盖本地 fsa（也兼容拖入 .zip）</span>
+      <br><span style="font-size:11px;color:#94a3b8">优先用 APK 内置的 assets/aikit/fsa；此处为备用（也兼容 .zip）</span>
     </div>
   </div>
 
@@ -554,7 +554,7 @@ function init() {
   }).catch(()=>{
     $('apkwarn').style.display = 'block';
   });
-  $('apkSelect').addEventListener('change', () => autoFillFromApk(false));
+  $('apkSelect').addEventListener('change', () => { autoFillFromApk(false); refreshFsaStatus(); });
   refreshDevices();
 }
 
@@ -1298,15 +1298,24 @@ dz.addEventListener('drop', e => {
   if (f) uploadApk(f);
 });
 
-// fsa 数据包：状态显示 + zip 拖拽上传覆盖（对齐 APK 的做法）
+// fsa 数据包：优先用 APK 内置的 assets/aikit/fsa，其次本地 fsa（手动上传）
 function refreshFsaStatus() {
-  api('fsa_status').then(d => {
+  const apk = ($('apkSelect') ? $('apkSelect').value : '') || '';
+  const q = apk ? ('?apk=' + encodeURIComponent(apk.split(/[\\/]/).pop())) : '';
+  api('fsa_status' + q).then(d => {
     const el = $('fsaStatus');
-    if (d.exists) {
-      el.innerHTML = `<span style="color:#4ade80">✔ 本地 fsa 已找到：${d.count} 个文件</span>` +
-        `　<span style="color:#94a3b8;font-size:11px">安装时自动推送到 /sdcard/aikit/esr/fsa</span>`;
+    if (!el) return;
+    if (d.apk_has_fsa) {
+      el.innerHTML = `<span style="color:#4ade80">✔ APK 内置 fsa：${d.apk_fsa_count} 个文件</span>` +
+        `　<span style="color:#94a3b8;font-size:11px">安装时自动解包并推送到 /sdcard/aikit/esr/fsa（优先于本地）</span>`;
+    } else if (d.exists && d.local_for_apk) {
+      el.innerHTML = `<span style="color:#4ade80">✔ APK 未内置 fsa，使用本地 fsa：${d.count} 个文件</span>` +
+        `　<span style="color:#94a3b8;font-size:11px">已为当前 APK 手动上传</span>`;
+    } else if (d.exists) {
+      el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa；本地 fsa 属于「${d.local_apk || '未知 APK'}」，可能是上个 APK 遗留，已忽略</span>` +
+        `　<span style="color:#94a3b8;font-size:11px">请为当前 APK 手动上传</span>`;
     } else {
-      el.innerHTML = `<span style="color:#eab308">⚠ 未找到本地 fsa 文件夹，安装时将跳过推送——请在下方导入</span>`;
+      el.innerHTML = `<span style="color:#f87171">✘ APK 未内置 fsa，本地也没有——请为当前 APK 手动上传</span>`;
     }
   }).catch(() => {});
 }
@@ -1315,7 +1324,9 @@ function uploadFsa(file) {
   const dz = $('fsaDz');
   dz.innerHTML = `<b>上传中：${file.name}</b><br><span style="font-size:11px;color:#7dd3fc" id="fsaUpPct"></span>`;
   const xhr = new XMLHttpRequest();
-  xhr.open('POST', '/api/upload_fsa?name=' + encodeURIComponent(file.name));
+  const _apk = ($('apkSelect') ? $('apkSelect').value : '');
+  xhr.open('POST', '/api/upload_fsa?name=' + encodeURIComponent(file.name) +
+    (_apk ? '&apk=' + encodeURIComponent(_apk) : ''));
   xhr.upload.onprogress = e => {
     if (e.lengthComputable) {
       const el = $('fsaUpPct');
@@ -1349,8 +1360,10 @@ async function uploadFsaFolder(list, rootName) {
     dz.innerHTML = `<b>上传中：${it.rel}</b><br>` +
       `<span style="font-size:11px;color:#7dd3fc">${i + 1} / ${list.length} 个文件</span>`;
     const first = i === 0 ? '&first=1' : '';
+    const _apk = ($('apkSelect') ? $('apkSelect').value : '');
+    const apkQ = _apk ? '&apk=' + encodeURIComponent(_apk) : '';
     try {
-      const r = await api('upload_fsa_file?rel=' + encodeURIComponent(it.rel) + first,
+      const r = await api('upload_fsa_file?rel=' + encodeURIComponent(it.rel) + first + apkQ,
                           { method: 'POST', body: it.file });
       if (!r.ok) throw new Error(r.error || '上传失败');
     } catch (err) {

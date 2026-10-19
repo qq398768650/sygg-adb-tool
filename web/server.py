@@ -549,6 +549,106 @@ def grant_permissions(serial, pkg, declared=None):
     return (not failed), granted, unknown, failed
 
 
+FSA_IN_APK = "assets/aikit/fsa/"
+# 本地 fsa 属于哪个 APK 的记录（防止把上一个 APK 遗留的 fsa 误当成当前 APK 的）
+FSA_META = os.path.join(PROJECT_DIR, ".fsa_meta.json")
+
+
+def read_fsa_meta():
+    try:
+        with open(FSA_META, encoding="utf-8") as f:
+            d = json.load(f)
+            return d if isinstance(d, dict) else {}
+    except Exception:
+        return {}
+
+
+def write_fsa_meta(apk_name):
+    try:
+        with open(FSA_META, "w", encoding="utf-8") as f:
+            json.dump({"apk": os.path.basename(apk_name or ""), "ts": time.time()},
+                      f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+
+def fsa_in_apk_count(apk_path):
+    """统计 APK 内 assets/aikit/fsa/ 下的文件数；读不到返回 None。"""
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            return sum(1 for n in z.namelist()
+                       if n.startswith(FSA_IN_APK) and not n.endswith("/"))
+    except Exception:
+        return None
+
+
+def extract_fsa_from_apk(apk_path):
+    """把 APK 内的 assets/aikit/fsa/ 解包到临时目录，返回解包后的 fsa 目录；没有则 None。"""
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            names = [n for n in z.namelist()
+                     if n.startswith(FSA_IN_APK) and not n.endswith("/")]
+            if not names:
+                return None
+            tag = os.path.splitext(os.path.basename(apk_path))[0]
+            dest_root = os.path.join(PROJECT_DIR, ".fsa_from_apk", tag)
+            fsa_dir = os.path.join(dest_root, "fsa")
+            shutil.rmtree(dest_root, ignore_errors=True)   # 清掉上次解包，避免旧文件残留
+            os.makedirs(fsa_dir, exist_ok=True)
+            for n in names:
+                rel = n[len(FSA_IN_APK):]
+                dest = os.path.join(fsa_dir, *rel.split("/"))
+                os.makedirs(os.path.dirname(dest), exist_ok=True)
+                with z.open(n) as src, open(dest, "wb") as dst:
+                    shutil.copyfileobj(src, dst)
+            return fsa_dir
+    except Exception as e:
+        print("[fsa] 解包 APK 失败：%s" % e)
+        return None
+
+
+def push_fsa_dir(serial, fsa_src, log, step):
+    """先确认并清空设备上的 fsa 目录（防污染/残留），再注入，最后校验文件数。"""
+    dev_targets = ["/sdcard/aikit/esr/fsa", "/sdcard/aikit/fsa"]
+    try:
+        # ---- 1) 检查设备现有 fsa 目录是否被污染/残留 ----
+        for d in dev_targets:
+            rc, out = adb_shell(serial, ["shell", "ls", "-A", d], timeout=30)
+            n = 0
+            if rc == 0:
+                n = len([x for x in (out or "").splitlines() if x.strip()])
+            if n:
+                log(serial, f"       [fsa] 设备目录 {d} 现有 {n} 项（旧数据/污染），清空")
+            adb_shell(serial, ["shell", "rm", "-rf", d], timeout=30)
+        # ---- 2) 注入 ----
+        adb_shell(serial, ["shell", "mkdir", "-p", "/sdcard/aikit/esr"], timeout=30)
+        rc, out = adb_shell(serial, ["push", fsa_src, "/sdcard/aikit/esr/"], timeout=300)
+        if rc != 0:
+            log(serial, f"       fsa push failed: {(out or '')[:300]}")
+            step(serial, "fsapush", False)
+            return False
+        # ---- 3) 校验：设备上的文件数必须与源一致 ----
+        local_n = 0
+        for _root, _dirs, fns in os.walk(fsa_src):
+            local_n += len(fns)
+        rc, out = adb_shell(serial, ["shell", "find", "/sdcard/aikit/esr/fsa", "-type", "f"], timeout=60)
+        dev_n = -1
+        if rc == 0:
+            dev_n = len([x for x in (out or "").splitlines() if x.strip()])
+        if dev_n >= 0 and dev_n != local_n:
+            log(serial, f"       [fsa] 校验不一致：设备 {dev_n} 个文件 / 源 {local_n} 个，可能未清干净")
+            step(serial, "fsapush", False)
+            return False
+        log(serial, f"       fsa pushed to /sdcard/aikit/esr/fsa.  {local_n} files (verified)")
+        step(serial, "fsapush", True)
+        return True
+    except Exception as e:
+        log(serial, f"       fsa push error: {e}")
+        step(serial, "fsapush", False)
+        return False
+
+
 def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
     # 流程严格对齐 install.bat（已验证能跑通）：
     # install -> root -> 按需开WiFi/蓝牙 -> 连WiFi -> grant(静默) ->
@@ -623,25 +723,25 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
             return
 
         # ---- [1.5] push fsa 数据文件夹到 /sdcard/aikit/esr/fsa ----
+        # 优先用 APK 内置的 assets/aikit/fsa；没有再用本地 fsa（手动上传）；都没有则提示手动上传
         log(serial, "       Pushing fsa folder...")
-        fsa_src = os.path.join(PROJECT_DIR, "fsa")
-        if os.path.isdir(fsa_src):
-            try:
-                # 先删设备上的旧 fsa 目录，避免旧文件残留（push 只同名覆盖不删除）
-                adb_shell(serial, ["shell", "rm", "-rf", "/sdcard/aikit/esr/fsa"], timeout=30)
-                adb_shell(serial, ["shell", "mkdir", "-p", "/sdcard/aikit/esr"], timeout=30)
-                rc, out = adb_shell(serial, ["push", fsa_src, "/sdcard/aikit/esr/"], timeout=300)
-                if rc == 0:
-                    log(serial, f"       fsa pushed to /sdcard/aikit/esr/fsa.  {base}")
-                    step(serial, "fsapush", True)
-                else:
-                    log(serial, f"       fsa push failed: {(out or '')[:300]}")
-                    step(serial, "fsapush", False)
-            except Exception as e:
-                log(serial, f"       fsa push error: {e}")
-                step(serial, "fsapush", False)
+        fsa_src = extract_fsa_from_apk(apk)
+        fsa_from = "APK 内置 assets/aikit/fsa"
+        if not fsa_src:
+            local_fsa = os.path.join(PROJECT_DIR, "fsa")
+            meta = read_fsa_meta()
+            if os.path.isdir(local_fsa) and meta.get("apk") == os.path.basename(apk):
+                fsa_src = local_fsa
+                fsa_from = "本地 fsa（本次为该 APK 手动上传）"
+        if fsa_src:
+            log(serial, f"       fsa 来源：{fsa_from}")
+            push_fsa_dir(serial, fsa_src, log, step)
         else:
-            log(serial, "       [WARN] 项目目录未找到 fsa 文件夹，跳过推送。可将 fsa 放在程序同目录后重装。")
+            log(serial, "       [WARN] APK 内未找到 assets/aikit/fsa。")
+            _meta = read_fsa_meta()
+            if os.path.isdir(os.path.join(PROJECT_DIR, "fsa")) and _meta.get("apk"):
+                log(serial, f"       [WARN] 本地 fsa 属于「{_meta['apk']}」，不是当前 APK 的，已忽略（可能是上个 APK 遗留）。")
+            log(serial, "       [WARN] 请在页面「② fsa 数据包」为当前 APK 手动上传后再装，本次跳过 fsa 推送。")
             skip(serial, "fsapush")
 
         # ---- [2] root ----
@@ -1825,8 +1925,23 @@ class Handler(BaseHTTPRequestHandler):
                             continue
                         files.append(os.path.relpath(
                             os.path.join(root, fn), fsa_dir).replace("\\", "/"))
+            # 顺便报告当前选中 APK 是否内置 assets/aikit/fsa
+            q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            apk_name = os.path.basename((q.get("apk") or [""])[0])
+            apk_has_fsa, apk_fsa_count = None, 0
+            if apk_name:
+                apk_path = os.path.join(PROJECT_DIR, apk_name)
+                if os.path.isfile(apk_path):
+                    n = fsa_in_apk_count(apk_path)
+                    if n is not None:
+                        apk_has_fsa, apk_fsa_count = n > 0, n
             self._send(200, {"exists": os.path.isdir(fsa_dir),
-                             "count": len(files), "files": files[:200]})
+                             "count": len(files), "files": files[:200],
+                             "apk": apk_name,
+                             "apk_has_fsa": apk_has_fsa,
+                             "apk_fsa_count": apk_fsa_count,
+                             "local_apk": read_fsa_meta().get("apk", ""),
+                             "local_for_apk": bool(apk_name and read_fsa_meta().get("apk") == apk_name)})
             return
         if path == "/api/prefs":
             # 上次填写的界面配置（WiFi 名称/密码），供前端自动回填
@@ -2074,6 +2189,8 @@ class Handler(BaseHTTPRequestHandler):
                     with zf.open(n) as src, open(dest, "wb") as dst:
                         shutil.copyfileobj(src, dst)
                     count += 1
+                _q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                write_fsa_meta((_q.get("apk") or [""])[0])
                 self._send(200, {"ok": True, "files": count})
             except Exception as e:
                 self._send(400, {"error": str(e)})
@@ -2105,6 +2222,8 @@ class Handler(BaseHTTPRequestHandler):
                 os.makedirs(os.path.dirname(dest), exist_ok=True)
                 with open(dest, "wb") as f:
                     f.write(data)
+                if first:
+                    write_fsa_meta((qs.get("apk", [""])[0]))
                 self._send(200, {"ok": True, "rel": rel})
             except Exception as e:
                 self._send(400, {"error": str(e)})
