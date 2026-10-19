@@ -1,10 +1,10 @@
 {
-    "version":  "0.1.9",
-    "notes":  "合并蓝牙模块（0.1.8-beta）+ 新增 Scrcpy 投屏（内置精简版 3.3.4，约 9.5MB）；更新器会把 scrcpy/ 一并下发，老客户端自动补齐",
+    "version":  "0.1.10",
+    "notes":  "ADB 终端新增「返回 / Home」快捷命令（shell input keyevent 4 / 3）",
     "files":  {
-                  "launcher.exe":  "ea1350cee32e1a739dae42087ac0bd54",
+                  "launcher.exe":  "5521e3857d9bc7273b8047bb1b9200bc",
                   "web/server.py":  "a5b813b81080add9f68cc7166e95f30c",
-                  "web/index.html":  "b5884cbce3addf836de46581cf9df469",
+                  "web/index.html":  "6f035c1c8f7390a11342190ac4dd3c0e",
                   "updater.ps1":  "0a79f07ed902f654b44daf6368418695",
                   "start.bat":  "7fb836886612fbe6af71f1b3c18fdd53",
                   "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
