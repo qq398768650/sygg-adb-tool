@@ -1,19 +1,19 @@
 {
-    "version":  "0.1.24",
-    "notes":  "更新模块改为独立 updater.py + 自更新：点更新后旧进程退出、由临时副本完成替换并拉起新版，不再需要重启或额外的 bat；未授权设备提示",
-    "files":  {
-                  "launcher.exe":  "6d4c2c65af06d50b5e80c63e48375e8b",
-                  "web/server.py":  "44c037448618603827d9de3905af2ad1",
-                  "web/index.html":  "5c3526be2385cf75218adbee0ecac720",
-                  "web/updater.py":  "42feb7555383be878a8aa93d4ff8d01e",
-                  "启动.bat":  "2cf9059ba2f66b7607fd34197477ec81",
-                  "scrcpy/SDL2.dll":  "43b0e7ab01de96ccab97458135f63386",
-                  "scrcpy/avcodec-61.dll":  "b060e7f5fda9f824c42d5d78aeb8b0bd",
-                  "scrcpy/avformat-61.dll":  "5b977bb2cc8238e23130e3e009c77e66",
-                  "scrcpy/avutil-59.dll":  "fb69b85010e1d2bfb1b3ff4cef1d5f90",
-                  "scrcpy/libusb-1.0.dll":  "52aac0e3484f68afc550e001bcb7aba6",
-                  "scrcpy/scrcpy-server":  "9153cfe86c4cac296581d022889683af",
-                  "scrcpy/scrcpy.exe":  "b462d800ba714e8e301aa0a6b8dceed8",
-                  "scrcpy/swresample-5.dll":  "f337a218595497e1c791a0d63bc728e3"
-              }
+  "version": "0.1.24",
+  "notes": "更新模块改为独立 updater.py + 自更新：点更新后由临时副本完成替换并拉起新版，不再需要重启或额外脚本",
+  "files": {
+    "launcher.exe": "6d4c2c65af06d50b5e80c63e48375e8b",
+    "web/server.py": "44c037448618603827d9de3905af2ad1",
+    "web/index.html": "5c3526be2385cf75218adbee0ecac720",
+    "web/updater.py": "42feb7555383be878a8aa93d4ff8d01e",
+    "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
+    "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
+    "scrcpy/avformat-61.dll": "5b977bb2cc8238e23130e3e009c77e66",
+    "scrcpy/avutil-59.dll": "fb69b85010e1d2bfb1b3ff4cef1d5f90",
+    "scrcpy/libusb-1.0.dll": "52aac0e3484f68afc550e001bcb7aba6",
+    "scrcpy/scrcpy-server": "9153cfe86c4cac296581d022889683af",
+    "scrcpy/scrcpy.exe": "b462d800ba714e8e301aa0a6b8dceed8",
+    "scrcpy/SDL2.dll": "43b0e7ab01de96ccab97458135f63386",
+    "scrcpy/swresample-5.dll": "f337a218595497e1c791a0d63bc728e3"
+  }
 }
