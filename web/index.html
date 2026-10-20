@@ -179,6 +179,11 @@
 
   /* ---------- 设备卡 ---------- */
   .devices{ display:grid; grid-template-columns:repeat(auto-fill,minmax(196px,1fr)); gap:9px; margin-bottom:12px; }
+  .pendingtip{
+    margin-bottom:10px; padding:9px 11px; border-radius:9px; font-size:12.5px; line-height:1.65;
+    border:1px solid #7A5A18; background:#2A2110; color:#E8C377;
+  }
+  .pendingtip b{ color:#FFD48A; }
   .dev{
     position:relative; border:1px solid var(--line); border-radius:10px;
     padding:11px; font-size:12.5px; cursor:pointer; user-select:none;
@@ -694,6 +699,7 @@
         <input type="checkbox" id="autoCollectChk" style="width:16px;height:16px" checked>自动采集
       </label>
     </div>
+    <div id="pendingTip" class="pendingtip" style="display:none"></div>
     <div class="devices" id="devices"></div>
     <div id="deviceErr" class="err"></div>
     <div id="macmapArea" style="display:none;margin-top:12px">
@@ -786,7 +792,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { apks: [], devices: [], statusMap: {}, wifiMap: {}, apkPath: "", running: false,
+const state = { apks: [], devices: [], pending: [], statusMap: {}, wifiMap: {}, apkPath: "", running: false,
                 devicesChecked: {}, appSel: {} };
 
 let toastSeq = 0;
@@ -989,6 +995,7 @@ function init() {
 function refreshDevices() {
   api('devices').then(d => {
     state.devices = d.devices || [];
+    state.pending = d.pending || [];
     syncCardApps();          // 新出现的设备自动拉取已装应用列表
     syncCardBattery();       // 同步电量（30 秒 TTL）
     adbDevices();            // 同步 ADB 终端的设备下拉框
@@ -1005,10 +1012,31 @@ function refreshWifi() {
   }).catch(()=>{});
 }
 
+function renderPendingTip() {
+  const tip = $('pendingTip');
+  if (!tip) return;
+  if (!state.pending.length) { tip.style.display = 'none'; return; }
+  tip.style.display = '';
+  tip.innerHTML = state.pending.map(p => {
+    if (p.state === 'unauthorized') {
+      return `<b>${p.serial}</b> 已连上电脑，但手机还没点授权 —— 解锁手机，在「允许 USB 调试吗？」弹窗里勾选「一律允许使用这台计算机」并点确定；<b>没看到弹窗</b>就去「开发者选项 → 撤销 USB 调试授权」，再重插数据线。`;
+    }
+    if (p.state === 'offline') {
+      return `<b>${p.serial}</b> 状态 <b>offline</b>（adb 连接异常）—— 拔插数据线，或关掉再打开「USB 调试」。`;
+    }
+    return `<b>${p.serial}</b> 状态 <b>${p.state}</b>，暂不可用。`;
+  }).join('<br>');
+}
+
 function renderDevices() {
   const box = $('devices');
+  renderPendingTip();
   $('devCount').textContent = `(${state.devices.length} 台)`;
-  if (!state.devices.length) { box.innerHTML = '<div class="empty">未发现在线设备</div>'; return; }
+  if (!state.devices.length) {
+    const n = state.pending.length;
+    box.innerHTML = `<div class="empty">未发现在线设备${n ? `（${n} 台已连接但不可用，见上方提示）` : ''}</div>`;
+    return;
+  }
   // 重绘前先记住用户在下拉框里选中的项，避免被轮询刷新重置
   box.querySelectorAll('.appsel').forEach(sel => {
     if (sel.value && sel.dataset.sn) state.appSel[sel.dataset.sn] = sel.value;

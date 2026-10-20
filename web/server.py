@@ -1376,7 +1376,12 @@ def resolve_apk(data):
     return apk, ""
 
 
-def list_devices():
+def list_devices_detail():
+    """返回 [(serial, state)]，state 为 adb 报的 device / unauthorized / offline 等。
+
+    list_devices() 只留可用设备；这里把未授权、离线的也带出来，前端才能提示
+    「已插上但没在手机上点允许」，而不是看起来像根本没插设备。
+    """
     out = []
     try:
         r = subprocess.run([ADB, "devices"], capture_output=True, text=True, timeout=30)
@@ -1385,11 +1390,15 @@ def list_devices():
             if not line or line.startswith("List") or line.startswith("*"):
                 continue
             parts = line.split()
-            if len(parts) >= 2 and parts[1] == "device":
-                out.append(parts[0])
+            if len(parts) >= 2:
+                out.append((parts[0], parts[1]))
     except Exception:
         pass
     return out
+
+
+def list_devices():
+    return [serial for serial, state in list_devices_detail() if state == "device"]
 
 
 def get_battery(serial):
@@ -1927,7 +1936,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/":
             path = "/index.html"
         if path == "/api/devices":
-            self._send(200, {"devices": list_devices()})
+            detail = list_devices_detail()
+            self._send(200, {
+                "devices": [s for s, st in detail if st == "device"],
+                "pending": [{"serial": s, "state": st} for s, st in detail if st != "device"],
+            })
             return
         if path == "/api/battery":
             self._send(200, {"batteries": all_batteries()})
