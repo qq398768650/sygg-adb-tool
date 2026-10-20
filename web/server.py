@@ -42,6 +42,22 @@ if sys.stdout is None:
 if sys.stderr is None:
     sys.stderr = _NullWriter()
 
+# --noconsole 打包后本进程没有控制台，任何控制台子进程（adb / netstat / taskkill）
+# 都会自己新建一个黑窗闪一下。前端定时刷新设备会反复调 adb，于是黑框一直闪。
+# 统一给所有 subprocess 加 CREATE_NO_WINDOW，一次解决。
+if os.name == "nt":
+    _CREATE_NO_WINDOW = 0x08000000
+    _popen_init = subprocess.Popen.__init__
+
+    def _popen_no_window(self, *args, **kwargs):
+        try:
+            kwargs["creationflags"] = int(kwargs.get("creationflags") or 0) | _CREATE_NO_WINDOW
+        except (TypeError, ValueError):
+            pass
+        return _popen_init(self, *args, **kwargs)
+
+    subprocess.Popen.__init__ = _popen_no_window
+
 if getattr(sys, "frozen", False):
     # PyInstaller 打包后：exe 所在目录 = 项目根目录（APK 在此）
     _EXE_DIR = os.path.dirname(sys.executable)

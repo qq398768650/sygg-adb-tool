@@ -1,9 +1,9 @@
 {
-  "version": "0.1.26",
-  "notes": "启动不再自动更新，改为按钮提示；更新进度实时可见，全程无黑窗",
+  "version": "0.1.27",
+  "notes": "修复无控制台模式下 adb 子进程反复闪黑框（统一 CREATE_NO_WINDOW）",
   "files": {
-    "launcher.exe": "4897434dc85ba97c07a79c53be716481",
-    "web/server.py": "4adf5cc9981de263ef24629c18fb12ce",
+    "launcher.exe": "bb8b5ac34929a55535790ee341eb04b6",
+    "web/server.py": "3bf6bf754f408d35c27029744e098003",
     "web/index.html": "c14a1647e5062415d58863cbfff23249",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
