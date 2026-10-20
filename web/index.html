@@ -836,6 +836,18 @@ function loadVersion() {
   }).catch(() => { $('verTag').textContent = 'v未知'; });
 }
 
+// 启动时静默查一次更新：只提示，绝不自动开始更新
+async function silentCheckUpdate() {
+  try {
+    const d = await api('check_update?cached=1');
+    if (!d || !d.ok || !d.has_update) return;
+    const b = $('checkUpdateBtn');
+    b.textContent = '有新版本 v' + d.remote;
+    b.classList.add('new');
+    toast('发现新版本 v' + d.remote + '，点右上角「有新版本」按钮更新', 'ok', 8000);
+  } catch (e) {}
+}
+
 // 检查更新 -> 有新版则询问并执行
 async function checkUpdate() {
   const btn = $('checkUpdateBtn'), old = btn.textContent;
@@ -847,7 +859,7 @@ async function checkUpdate() {
     $('verTag').classList.remove('new');
     if (!d.has_update) { toast('已是最新版本 v' + d.local, 'ok'); return; }
     $('verTag').classList.add('new');
-    if (!await confirmUI(`发现新版本 v${d.remote}（当前 v${d.local}）\n\n是否立即更新？\n网页更新后刷新即生效；主程序（launcher.exe）需重启才会替换。`)) return;
+    if (!await confirmUI(`发现新版本 v${d.remote}（当前 v${d.local}）\n\n是否立即更新？\n更新过程中界面会短暂断开 3~5 秒（替换主程序），随后自动恢复。`)) return;
     await doUpdate();
   } catch (e) {
     toast('检查更新失败：' + e, 'err');
@@ -1006,6 +1018,7 @@ function autoFillFromApk(silent) {
 }
 
 function init() {
+  setTimeout(silentCheckUpdate, 3000);   // 只提示，不自动更新
   api('config').then(cfg => {
     if (cfg.PKG) $('pkg').value = cfg.PKG;
     if (cfg.ACT) $('act').value = cfg.ACT;

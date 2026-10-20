@@ -132,6 +132,10 @@ def fetch_remote_version(timeout=20):
 
 
 # ---------- 在线更新（拉起独立副本跑 updater.py，本进程退出让位） ----------
+# 启动时静默查到的远端版本（只用于提示，不会自动更新）
+REMOTE_UPDATE = {"checked": False, "at": 0.0, "local": "", "remote": "",
+                 "has": False, "notes": ""}
+
 UPDATE_PROGRESS_FILE = os.path.join(PROJECT_DIR, ".update.progress.json")
 UPDATE_LOG_FILE = os.path.join(PROJECT_DIR, ".update.log")
 UPDATE_STATE = {"running": False, "done": True, "ok": False, "rc": None,
@@ -244,9 +248,9 @@ def auto_check_update(delay=5.0):
         local = (read_local_version() or {}).get("version") or ""
         remote = fetch_remote_version(timeout=12) or {}
         rv = remote.get("version") or ""
-        if not rv or ver_tuple(rv) <= ver_tuple(local):
-            return
-        start_self_update()
+        REMOTE_UPDATE.update({"checked": True, "at": time.time(), "local": local,
+                              "remote": rv, "notes": remote.get("notes") or "",
+                              "has": bool(rv and ver_tuple(rv) > ver_tuple(local))})
     except Exception:
         pass
 
@@ -2068,6 +2072,15 @@ class Handler(BaseHTTPRequestHandler):
             return
         if path == "/api/check_update":
             local = read_local_version().get("version", "")
+            # cached=1：用启动时静默检查的结果，秒回，避免页面一开就等十几秒
+            if "cached=1" in (self.path or "") and REMOTE_UPDATE.get("checked") \
+                    and time.time() - REMOTE_UPDATE.get("at", 0) < 600:
+                rv = REMOTE_UPDATE.get("remote", "")
+                self._send(200, {"ok": True, "local": local, "remote": rv,
+                                 "has_update": bool(REMOTE_UPDATE.get("has")) and
+                                               ver_tuple(rv) > ver_tuple(local),
+                                 "changed": [], "notes": REMOTE_UPDATE.get("notes", "")})
+                return
             try:
                 remote = fetch_remote_version()
             except Exception as e:

@@ -1,10 +1,10 @@
 {
-  "version": "0.1.25",
-  "notes": "更新不再弹黑框；更新进度实时可见，仅替换主程序时短暂重启",
+  "version": "0.1.26",
+  "notes": "启动不再自动更新，改为按钮提示；更新进度实时可见，全程无黑窗",
   "files": {
-    "launcher.exe": "8128efc98a3001819ac83ddb38d8767e",
-    "web/server.py": "867b13b11ff66b060b65243d2c13f582",
-    "web/index.html": "24583e458b58c38ed3816b5a49a84763",
+    "launcher.exe": "4897434dc85ba97c07a79c53be716481",
+    "web/server.py": "4adf5cc9981de263ef24629c18fb12ce",
+    "web/index.html": "c14a1647e5062415d58863cbfff23249",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
