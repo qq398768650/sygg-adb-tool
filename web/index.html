@@ -888,7 +888,30 @@ async function watchUpdate() {
   return null;
 }
 
-// 执行在线更新（后端后台跑 updater.ps1，这里轮询进度）
+// 自更新模式：主进程退出、独立副本下载替换，这里等服务重新上线
+async function watchSelfUpdate() {
+  $('updTxt').textContent = '正在下载并替换程序，完成后会自动重开…';
+  for (let i = 0; i < 300; i++) {          // 最多约 5 分钟
+    await new Promise(r => setTimeout(r, 1000));
+    try {
+      const v = await api('version');
+      if (v && v.version) {
+        let last = null;
+        try { last = await api('update_status'); } catch (e) {}
+        const ph = (last && last.progress && last.progress.phase) || '';
+        if (ph === 'error') {
+          return { ok: false, running: false, done: true,
+                   error: '部分文件更新失败，详见项目目录 .update.log' };
+        }
+        return { ok: true, running: false, done: true };
+      }
+    } catch (e) {}
+    if (i % 5 === 0) $('updTxt').textContent = '正在更新，等待服务重启…（' + (i + 1) + 's）';
+  }
+  return { ok: false, running: false, done: true, error: '等待服务重启超时，请手动双击 launcher.exe' };
+}
+
+// 执行在线更新（后端拉起独立更新进程后自身退出，这里等它把服务带回来）
 async function doUpdate() {
   const btn = $('checkUpdateBtn'), old = btn.textContent;
   let st = null;
@@ -897,7 +920,9 @@ async function doUpdate() {
   try {
     const d = await api('update', { method: 'POST' });
     if (!d.ok) { toast('更新未开始：' + (d.error || '未知错误'), 'err', 5000); return; }
-    if (d.started) {
+    if (d.self) {
+      st = await watchSelfUpdate();
+    } else if (d.started) {
       st = await watchUpdate();
     } else {
       // 兼容旧版后端：同步跑完才返回，没有进度可轮询

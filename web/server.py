@@ -114,7 +114,7 @@ def fetch_remote_version(timeout=20):
     raise RuntimeError("无法获取远端版本：%s" % last_err)
 
 
-# ---------- 在线更新任务（后台跑 updater.ps1，前端轮询进度） ----------
+# ---------- 在线更新（拉起独立副本跑 updater.py，本进程退出让位） ----------
 UPDATE_PROGRESS_FILE = os.path.join(PROJECT_DIR, ".update.progress.json")
 UPDATE_LOG_FILE = os.path.join(PROJECT_DIR, ".update.log")
 UPDATE_STATE = {"running": False, "done": True, "ok": False, "rc": None,
@@ -122,7 +122,7 @@ UPDATE_STATE = {"running": False, "done": True, "ok": False, "rc": None,
 
 
 def _read_update_progress():
-    """读取 updater.ps1 写出的进度 JSON（不存在/写了一半时返回 None）。"""
+    """读取更新器写出的进度 JSON（不存在/写了一半时返回 None）。"""
     try:
         with open(UPDATE_PROGRESS_FILE, "r", encoding="utf-8-sig") as f:
             return json.load(f)
@@ -138,36 +138,82 @@ def _read_update_log(limit=6000):
         return ""
 
 
-def _update_worker():
-    script = os.path.join(PROJECT_DIR, "updater.ps1")
-    rc = -1
-    err = ""
-    try:
-        p = subprocess.run(
-            ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script],
-            cwd=PROJECT_DIR, capture_output=True, timeout=1800,
-        )
-        rc = p.returncode
-    except Exception as e:
-        err = str(e)
-    with LOCK:
-        UPDATE_STATE.update({"running": False, "done": True, "rc": rc,
-                             "ok": rc == 0, "deferred": rc == 2, "error": err})
+def _pyi_clean_env():
+    """剔除 PyInstaller 的 _PYI_* 变量。
 
-
-def start_update():
-    """后台启动 updater.ps1；返回 False 表示已有任务在跑。
-
-    updater.ps1 的退出码约定：0=成功/已最新，1=部分失败，2=主程序已下载但需重启才生效。
+    否则 bootloader 会误以为自己是被父进程拉起的子进程而直接退出
+    （历史上表现为「重启后没反应」）。
     """
-    script = os.path.join(PROJECT_DIR, "updater.ps1")
+    return {k: v for k, v in os.environ.items()
+            if not k.upper().startswith("_PYI") and k.upper() != "_MEIPASS2"}
+
+
+DETACHED = 0x00000008 | 0x08000000   # DETACHED_PROCESS | CREATE_NO_WINDOW
+
+
+def _spawn_detached(cmd):
+    """完全脱离本进程地启动（本进程退出不会带走它）。"""
+    return subprocess.Popen(cmd, cwd=PROJECT_DIR, env=_pyi_clean_env(), close_fds=True,
+                            creationflags=DETACHED,
+                            stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+
+
+def _copy_self_to_temp(tag):
+    """把当前 exe 复制到 %TEMP%，返回副本路径；源码模式返回 None。"""
+    if not getattr(sys, "frozen", False):
+        return None
+    dst = os.path.join(tempfile.gettempdir(), "sygg_updater_%s_%d.exe" % (tag, os.getpid()))
+    try:
+        shutil.copy2(sys.executable, dst)
+        return dst
+    except OSError:
+        return None
+
+
+def _updater_cmd():
+    """构造「用副本跑更新器」的命令行。
+
+    frozen：把自身复制到 %TEMP% 再以 --update 跑，副本不占用项目目录的
+    launcher.exe，替换时不会被文件锁拦住；源码模式：直接用当前 python 跑 updater.py。
+    """
+    if getattr(sys, "frozen", False):
+        copy = _copy_self_to_temp("upd")
+        if not copy:
+            return None
+        return [copy, "--update", "--root", PROJECT_DIR]
+    return [sys.executable, os.path.join(BASE_DIR, "updater.py"), "--root", PROJECT_DIR]
+
+
+def auto_check_update(delay=5.0):
+    """启动后台自动检查一次更新：只有远端版本更高时才触发自更新。
+
+    以前这一步是 启动.bat 在拉起 launcher 之前做的；现在 bat 只剩启动，
+    更新挪进程序自己，用户不点按钮也能拿到新版。
+    """
+    time.sleep(delay)
+    try:
+        local = (read_local_version() or {}).get("version") or ""
+        remote = fetch_remote_version(timeout=12) or {}
+        rv = remote.get("version") or ""
+        if not rv or ver_tuple(rv) <= ver_tuple(local):
+            return
+        ok, _err = start_self_update()
+        if ok:
+            threading.Timer(1.2, lambda: os._exit(0)).start()
+    except Exception:
+        pass
+
+
+def start_self_update():
+    """启动自更新进程，本进程随后由调用方退出。返回 (ok, error)。
+
+    和旧实现的区别：更新不再跑在服务进程里。服务进程先退出、把 launcher.exe
+    让出来，独立副本才能直接覆盖它，更新完再拉起新版——一次点完就生效。
+    """
     with LOCK:
         if UPDATE_STATE["running"]:
-            return False
-        if not os.path.isfile(script):
-            UPDATE_STATE.update({"running": False, "done": True, "ok": False, "rc": -1,
-                                 "deferred": False, "error": "未找到 updater.ps1（请在项目根目录运行）"})
-            return True
+            return False, "更新正在进行中"
         UPDATE_STATE.update({"running": True, "done": False, "ok": False, "rc": None,
                              "deferred": False, "error": "", "started": time.time()})
     for p in (UPDATE_PROGRESS_FILE, UPDATE_LOG_FILE):
@@ -175,8 +221,19 @@ def start_update():
             os.remove(p)
         except OSError:
             pass
-    threading.Thread(target=_update_worker, daemon=True).start()
-    return True
+    cmd = _updater_cmd()
+    if not cmd:
+        with LOCK:
+            UPDATE_STATE.update({"running": False, "done": True, "ok": False,
+                                 "error": "无法创建更新器副本"})
+        return False, "无法创建更新器副本"
+    try:
+        _spawn_detached(cmd)
+    except Exception as e:
+        with LOCK:
+            UPDATE_STATE.update({"running": False, "done": True, "ok": False, "error": str(e)})
+        return False, str(e)
+    return True, ""
 
 # ---------- APK 包名 / 启动 Activity 解析（纯 Python 解析二进制 AndroidManifest.xml，不依赖 aapt） ----------
 def _axml_strings(data, base):
@@ -2201,61 +2258,30 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         if self.path.split("?")[0] == "/api/update":
-            if not start_update():
-                self._send(200, {"ok": False, "running": True, "error": "更新正在进行中"})
+            ok, err = start_self_update()
+            if not ok:
+                self._send(200, {"ok": False, "running": True, "error": err})
                 return
-            self._send(200, {"ok": True, "started": True})
+            self._send(200, {"ok": True, "started": True, "self": True})
+            # 响应先发出去，再把 launcher.exe 让给更新器
+            threading.Timer(1.0, lambda: os._exit(0)).start()
             return
         if self.path.split("?")[0] == "/api/restart":
-            # 重启主程序：本进程退出，由后台助手等 launcher.exe 替换完成后重新拉起
-            exe = os.path.join(PROJECT_DIR, "launcher.exe")
-            if not os.path.isfile(exe):
-                self._send(400, {"ok": False, "error": "launcher.exe 不存在（命令行方式运行无需重启）"})
+            # 重启主程序：复制自身到 %TEMP%，由副本在旧进程退出后拉起新版
+            if not getattr(sys, "frozen", False):
+                self._send(400, {"ok": False, "error": "命令行方式运行无需重启"})
                 return
-            new = os.path.join(PROJECT_DIR, "launcher.exe.new")
-            upd = os.path.join(PROJECT_DIR, "updater.ps1")
-            helper = os.path.join(PROJECT_DIR, "_restart_helper.ps1")
-            log = os.path.join(PROJECT_DIR, "_restart_helper.log")
-            def _q(p):
-                return p.replace("'", "''")
-            script = (
-                "$ErrorActionPreference = 'SilentlyContinue'\r\n"
-                "$log = '%s'\r\n"
-                "\"start\" | Out-File -LiteralPath $log -Encoding utf8\r\n"
-                "Start-Sleep -Seconds 1\r\n"
-                "Stop-Process -Name launcher -Force\r\n"
-                "\"killed\" | Out-File -LiteralPath $log -Append -Encoding utf8\r\n"
-                "$new = '%s'\r\n"
-                "for ($i=0; $i -lt 120; $i++) { if (-not (Test-Path -LiteralPath $new)) { break }; Start-Sleep -Milliseconds 500 }\r\n"
-                "\"waited\" | Out-File -LiteralPath $log -Append -Encoding utf8\r\n"
-                "Start-Sleep -Milliseconds 600\r\n"
-                "$upd = '%s'\r\n"
-                "if (Test-Path -LiteralPath $upd) { & powershell -NoProfile -ExecutionPolicy Bypass -File $upd *>> $log }\r\n"
-                "\"updater rc=$LASTEXITCODE\" | Out-File -LiteralPath $log -Append -Encoding utf8\r\n"
-                "try { Start-Process -FilePath '%s' -WindowStyle Hidden -ErrorAction Stop; \"started\" | Out-File -LiteralPath $log -Append -Encoding utf8 }\r\n"
-                "catch { \"ERR: $_\" | Out-File -LiteralPath $log -Append -Encoding utf8 }\r\n"
-                "Remove-Item -LiteralPath $MyInvocation.MyCommand.Path -Force\r\n"
-            ) % (_q(log), _q(new), _q(upd), _q(exe))
+            copy = _copy_self_to_temp("restart")
+            if not copy:
+                self._send(500, {"ok": False, "error": "无法创建重启助手"})
+                return
             try:
-                with open(helper, "w", encoding="utf-8-sig") as f:
-                    f.write(script)
-                # 用 cmd start 拉起，进程完全脱离本进程；直接 Popen 的子进程会随本进程退出一起被杀。
-                # 必须清掉 PyInstaller 的 _PYI_* 环境变量，否则助手再启动 launcher.exe 时，
-                # bootloader 会误以为自己是被父进程拉起的子进程而直接退出（表现为「重启后没反应」）。
-                env = {k: v for k, v in os.environ.items()
-                       if not k.upper().startswith("_PYI") and k.upper() != "_MEIPASS2"}
-                subprocess.Popen(
-                    ["cmd", "/c", "start", "", "/min", "powershell",
-                     "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", helper],
-                    creationflags=0x08000000,
-                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                    env=env,
-                )
+                _spawn_detached([copy, "--respawn", "--root", PROJECT_DIR])
             except Exception as e:
                 self._send(500, {"ok": False, "error": str(e)})
                 return
             self._send(200, {"ok": True})
-            threading.Timer(2.0, lambda: os._exit(0)).start()
+            threading.Timer(1.0, lambda: os._exit(0)).start()
             return
         if self.path.split("?")[0] == "/api/upload_apk":
             length = int(self.headers.get("Content-Length", 0) or 0)
@@ -2610,7 +2636,33 @@ def _hide_console():
         pass
 
 
+def _run_updater_mode(argv):
+    """--update：以 %TEMP% 副本身份跑更新器，跑完就退，不起 web 服务。"""
+    if BASE_DIR not in sys.path:
+        sys.path.insert(0, BASE_DIR)
+    from updater import main as updater_main
+    return updater_main(argv)
+
+
+def _run_respawn_mode():
+    """--respawn：重启助手。等旧进程放开 8765 和 launcher.exe，再拉起新版。"""
+    _free_port(PORT)
+    time.sleep(1.0)
+    exe = os.path.join(PROJECT_DIR, "launcher.exe")
+    if os.path.isfile(exe):
+        try:
+            _spawn_detached([exe])
+        except Exception:
+            return 1
+    return 0
+
+
 def main():
+    argv = sys.argv[1:]
+    if "--update" in argv:
+        sys.exit(_run_updater_mode(argv))
+    if "--respawn" in argv:
+        sys.exit(_run_respawn_mode())
     _free_port(PORT)
     try:
         server = ThreadingHTTPServer((HOST, PORT), Handler)
@@ -2631,6 +2683,7 @@ def main():
     print(f"ADB      : {ADB}")
     print(f"Server   : http://{HOST}:{PORT}/")
     threading.Timer(0.8, lambda: webbrowser.open(f"http://{HOST}:{PORT}/")).start()
+    threading.Thread(target=auto_check_update, daemon=True).start()
     if getattr(sys, "frozen", False):
         _hide_console()
     try:

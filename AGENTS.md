@@ -10,7 +10,7 @@ Windows 上的 **ADB 批量安装工具**：
 
 - 后端：`web/server.py`（标准库 `http.server`），打包成 `launcher.exe`（PyInstaller onefile）
 - 前端：`web/index.html`（单页，浏览器打开 `http://127.0.0.1:8765/`）
-- 启动：`启动.bat` → `updater.ps1`（在线更新）→ 后台拉起 `launcher.exe`（隐藏控制台 + 打开浏览器）
+- 启动：双击 `launcher.exe`（或 `启动.bat`）→ 隐藏控制台 + 打开浏览器；启动后自己检查更新
 
 功能：批量装 APK、注入 fsa 数据、配 WiFi、采集 MAC/序列号、抓 deviceId、批量重启/关机、scrcpy 投屏、蓝牙配对、ADB 终端、日志查看。
 
@@ -25,8 +25,8 @@ Windows 上的 **ADB 批量安装工具**：
 | `web/server.py` | **后端全部逻辑**：HTTP 路由、adb 调用、APK 解析、fsa 注入、更新器调用 |
 | `web/index.html` | **前端单页**：所有 UI + JS。运行时从磁盘读，改完刷新即生效 |
 | `launcher.exe` | PyInstaller onefile，**内嵌 `web/server.py`** |
-| `启动.bat` | 启动入口（GBK 编码）：杀旧进程 → 跑 `updater.ps1` → 后台启动 launcher |
-| `updater.ps1` | 在线更新（UTF-8 **带 BOM**） |
+| `启动.bat` | 可选启动入口（GBK 编码）：只启动 `launcher.exe`，等价于直接双击 exe |
+| `web/updater.py` | 在线更新（纯 Python，打进 launcher.exe；也负责替换自身并拉起新版） |
 | `release.ps1` | 一键发布 |
 | `version.json` | 当前版本号 + 每个受管文件的 MD5 |
 | `platform-tools/adb.exe` | adb |
@@ -72,7 +72,7 @@ python -m PyInstaller --onefile --name launcher ^
 
 ## 4. 在线更新机制
 
-`updater.ps1` 的流程：
+`web/updater.py` 的流程：
 
 1. 从**多个镜像**拉 `version.json?t=<时间戳>`，取版本号最高的一份（防某个镜像缓存旧版）
    - 镜像：`ghfast.top`、`gh-proxy.com`、`cdn.jsdelivr.net`、`raw.githubusercontent.com`
@@ -80,10 +80,24 @@ python -m PyInstaller --onefile --name launcher ^
 2. 版本号只认语义化 `v主.次.补`；非语义化（如旧的 `202610131253`）一律当 `0.0.0`
 3. 本地版本 ≥ 远端 → 已是最新，退出
 4. 逐文件比对 MD5，只下载有变化的；每个文件逐个镜像试，**MD5 命中才采用**
-5. 若目标是 `launcher.exe` 且正被运行中的进程占用 → 下载成 `launcher.exe.new`，退出码 **2**（deferred）
-6. 全部成功且无 deferred 才写 `version.json`
+5. 但 `launcher.exe` 排在**最后**替换：中途失败时其余文件是齐的，不会出现半新半旧
+6. 全部到位后才写 `version.json`（避免版本号虚高，下次误判「已是最新」）
 
-前端 `doUpdate()` 收到 `deferred: true` 时会 `POST /api/restart`，由后台助手：杀掉 launcher → 等 `launcher.exe.new` 被替换 → 再跑一次 `updater.ps1` → 启动新 launcher。
+### 4.1 自更新怎么绕开「exe 不能替换自己」
+
+Windows 不允许进程覆盖自己正在运行的 exe。所以流程是「让位」而不是「硬换」：
+
+1. 网页点更新 → `POST /api/update` → `start_self_update()` 把**当前 exe 复制到 `%TEMP%`**
+   （`sygg_updater_upd_<pid>.exe`），以 `--update --root <项目根>` 启动副本
+2. 主进程 `threading.Timer(1.0, os._exit(0))` 退出，8765 和 `launcher.exe` 都被放开
+3. 副本（`server.py` 的 `--update` 分支 → `updater.main()`）下载、校验、直接覆盖原文件
+4. 不管成功失败都 `launch_main()` 把 `launcher.exe` 拉回来——主进程已经死了，不拉起用户就看不到界面
+5. `cleanup_old_copies()` 在下次运行时删掉 `%TEMP%` 里的旧副本（当前这个自己在跑，删不掉）
+
+前端 `doUpdate()` 看到响应里的 `self: true` 就走 `watchSelfUpdate()`：每秒试 `api('version')`，
+服务回来就读 `.update.progress.json` 判断 `phase` 是 `done` 还是 `error`，然后刷新页面。
+
+源码模式（`python web/server.py`）不复制 exe，直接 `sys.executable web/updater.py --root <项目根>`。
 
 ---
 
@@ -158,7 +172,7 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 `find_scrcpy()` 优先项目内 `scrcpy/scrcpy.exe`（否则 PATH 里可能命中别的版本）；`launch_scrcpy()` 用项目自带 adb（`env["ADB"]`），`DETACHED_PROCESS` 启动。
 
 ### 6.5 更新
-`read_local_version()` / `fetch_remote_version()` / `start_update()` / `_update_worker()`；
+`read_local_version()` / `fetch_remote_version()` / `start_self_update()` / `_updater_cmd()`；
 路由：`GET /api/version`、`GET /api/check_update`、`POST /api/update`（异步，立即返回 `started`）、`GET /api/update_status`（进度 + 日志）、`POST /api/restart`。
 
 ---
@@ -179,7 +193,7 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 |---|---|
 | 改了后端没生效 | 没重打包 `launcher.exe` |
 | 更新报「各镜像内容不一致」 | 行尾符 / MD5 不一致（见 §5.2） |
-| 更新完提示「已下载，重启后生效」但没重启 | `_PYI_*` 环境变量（见 §5.3） |
+| 更新后服务没回来 | 更新器没拉起 exe，看项目目录 `.update.log`；或 `_PYI_*` 变量没清（见 §5.3） |
 | 检查更新看不到新版本 | 镜像缓存（见 §5.6） |
 | 装完没有读写权限 | APK 未声明权限，或 `MANAGE_EXTERNAL_STORAGE` 未 allow |
 | 装的是旧 APK | 下拉框选错 / 同名文件被覆盖 |

@@ -12,7 +12,7 @@ $proxy    = 'http://127.0.0.1:7897'
 # 仅在 web/server.py 有改动时才重打包（launcher.exe 内嵌 server.py；index.html 等由磁盘读取）
 $needBuild = $true
 if (Test-Path (Join-Path $root 'launcher.exe')) {
-    & git -C $root diff --quiet HEAD -- web/server.py 2>$null
+    & git -C $root diff --quiet HEAD -- web/server.py web/updater.py 2>$null
     if ($LASTEXITCODE -eq 0) { $needBuild = $false }
 }
 if ($needBuild) {
@@ -37,7 +37,7 @@ if ($needBuild) {
 
 # 确保 .ps1 带 UTF-8 BOM（编辑器保存常会丢 BOM，Windows PowerShell 5.1 无 BOM 会解析中文报错）
 $utf8 = New-Object Text.UTF8Encoding $true
-foreach ($f in @('updater.ps1','release.ps1')) {
+foreach ($f in @('release.ps1')) {
     $p = Join-Path $root $f
     [IO.File]::WriteAllText($p, ([IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)), $utf8)
 }
@@ -75,7 +75,7 @@ $files = [ordered]@{
     'launcher.exe'   = (Get-Md5 (Join-Path $root 'launcher.exe'))
     'web/server.py'  = (Get-Md5 (Join-Path $root 'web/server.py'))
     'web/index.html' = (Get-Md5 (Join-Path $root 'web/index.html'))
-    'updater.ps1'    = (Get-Md5 (Join-Path $root 'updater.ps1'))
+    'web/updater.py' = (Get-Md5 (Join-Path $root 'web/updater.py'))
     '启动.bat'       = (Get-Md5 (Join-Path $root '启动.bat'))
 }
 # 内置 scrcpy（精简版）：纳入更新清单，老客户端更新时会自动补齐 scrcpy/ 目录
@@ -116,7 +116,7 @@ $env:HTTPS_PROXY = $proxy
 $env:HTTP_PROXY  = $proxy
 $tag     = "v$version"
 $relBody = "$Note`r`n`r`n### 文件`r`n" + (($obj.files.GetEnumerator() | ForEach-Object { "- ``$($_.Key)`` — ``$($_.Value)``" }) -join "`r`n")
-$relBody += "`r`n`r`n> 客户端无需手动下载，运行 ``启动.bat`` 会自动更新到本版本。"
+$relBody += "`r`n`r`n> 客户端无需手动下载，双击 ``launcher.exe`` 即可自动更新到本版本。"
 $prevEap = $ErrorActionPreference
 $ErrorActionPreference = 'Continue'
 & gh release create $tag --repo $repoSlug --title $tag --notes $relBody 2>&1 | Out-Host
@@ -126,7 +126,7 @@ $ErrorActionPreference = $prevEap
 # 让 jsDelivr 立即刷新缓存（否则镜像可能最长 12 小时才更新）
 Write-Host '[release] 刷新 jsDelivr 缓存 ...' -ForegroundColor Cyan
 $curl = Join-Path $env:SystemRoot 'System32\curl.exe'
-foreach ($f in @('version.json','CHANGELOG.md','launcher.exe','web/server.py','web/index.html','updater.ps1','启动.bat')) {
+foreach ($f in @('version.json','CHANGELOG.md','launcher.exe','web/server.py','web/index.html','web/updater.py','启动.bat')) {
     & $curl -s -o NUL "https://purge.jsdelivr.net/gh/$repoSlug@main/$f" | Out-Null
 }
 
