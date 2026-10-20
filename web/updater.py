@@ -185,6 +185,47 @@ def replace_file(tmp, target):
     return False
 
 
+READY_MARK = ".update.ready"
+
+
+def write_ready(root):
+    """告诉主进程：可以退出了，把 launcher.exe 让出来。
+
+    主进程的 watcher 线程看到这个文件才会 os._exit，从而在替换 exe 的瞬间断开服务。
+    """
+    try:
+        with open(os.path.join(root, READY_MARK), "w", encoding="utf-8") as f:
+            f.write(str(os.getpid()))
+    except OSError:
+        pass
+
+
+def wait_process_exit(pid, timeout=180):
+    """等指定进程退出（Windows 用 WaitForSingleObject，避免忙轮询）。"""
+    if not pid:
+        return True
+    try:
+        import ctypes
+        SYNCHRONIZE = 0x00100000
+        h = ctypes.windll.kernel32.OpenProcess(SYNCHRONIZE, False, int(pid))
+        if not h:
+            return True
+        try:
+            rc = ctypes.windll.kernel32.WaitForSingleObject(h, int(timeout * 1000))
+            return rc == 0
+        finally:
+            ctypes.windll.kernel32.CloseHandle(h)
+    except Exception:
+        # 兜底：轮询
+        for _ in range(int(timeout * 2)):
+            time.sleep(0.5)
+            try:
+                os.kill(pid, 0)
+            except OSError:
+                return True
+        return False
+
+
 def launch_main(root):
     """拉起新版 launcher.exe（脱离本进程）。"""
     exe = os.path.join(root, "launcher.exe")
@@ -217,7 +258,7 @@ def cleanup_old_copies():
 
 
 # ---------- 主流程 ----------
-def run_update(root, restart=True):
+def run_update(root, restart=True, wait_pid=0):
     root = os.path.abspath(root)
     prog = Progress(root)
     local_ver_path = os.path.join(root, "version.json")
@@ -262,24 +303,37 @@ def run_update(root, restart=True):
         return 0
 
     files = [str(k) for k in (remote.get("files") or {})]
-    # 主程序放最后：万一中途失败，至少其他文件是齐的，不会出现半新半旧的组合
-    files.sort(key=lambda n: (n.lower() == "launcher.exe", n))
+    file_md5 = remote.get("files") or {}
     prog.count = len(files)
+
+    # launcher.exe 单独处理：下载可以在主进程活着时完成（进度才看得见），
+    # 但替换必须等主进程退出——它自己映射着这个文件，写不进去。
+    exe_name = None
+    others = []
+    for rel in files:
+        if rel.lower() == "launcher.exe":
+            exe_name = rel
+        else:
+            others.append(rel)
 
     failed = []
     changed = False
-    for idx, rel in enumerate(files, 1):
-        prog.index = idx
-        want = str((remote.get("files") or {}).get(rel, "")).lower()
+    need_restart = False
+
+    def do_one(rel, idx):
+        """下载并替换单个文件，成功返回 True。"""
+        nonlocal changed
+        want = str(file_md5.get(rel, "")).lower()
         target = os.path.join(root, rel.replace("/", os.sep))
         if os.path.isfile(target) and md5_file(target) == want:
-            continue
+            return True
         if not os.path.isfile(target) and not want:
-            continue
+            return True
         changed = True
         parent = os.path.dirname(target)
         if parent and not os.path.isdir(parent):
             os.makedirs(parent, exist_ok=True)
+        prog.index = idx
         prog.log("  [下载] %s（%d/%d）" % (rel, idx, len(files)))
         prog.state("download", "下载 " + rel, rel, 0, 0, 0)
         tmp = target + ".new"
@@ -289,29 +343,60 @@ def run_update(root, restart=True):
                 os.remove(tmp)
             except OSError:
                 pass
-            failed.append(rel)
-            continue
+            return False
         if replace_file(tmp, target):
             prog.log("  [完成] %s 已更新" % rel)
-        else:
-            prog.log("  [占用] %s 无法替换（仍被占用）" % rel)
-            try:
-                os.remove(tmp)
-            except OSError:
-                pass
+            return True
+        prog.log("  [占用] %s 无法替换（仍被占用）" % rel)
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+    for idx, rel in enumerate(others, 1):
+        if not do_one(rel, idx):
             failed.append(rel)
 
     if failed:
         prog.log("[update] 部分文件更新失败：%s" % ", ".join(failed))
         prog.state("error", "部分文件更新失败，请稍后重试", "", 0, 0, 0)
-        # 调用方（主程序）已经退出，必须把服务拉回来，否则用户界面直接没了
-        if restart:
-            launch_main(root)
+        # 主程序还没退出（exe 没动），不用拉起；它会读到 error 状态并恢复运行
         return 1
+
+    if exe_name:
+        idx = len(files)
+        want = str(file_md5.get(exe_name, "")).lower()
+        target = os.path.join(root, exe_name)
+        if not (os.path.isfile(target) and md5_file(target) == want):
+            prog.index = idx
+            changed = True
+            prog.log("  [下载] %s（%d/%d）" % (exe_name, idx, len(files)))
+            prog.state("download", "下载 " + exe_name, exe_name, 0, 0, 0)
+            tmp = target + ".new"
+            if not download(exe_name, tmp, want, prog):
+                prog.log("  [失败] %s 下载失败或各镜像内容不一致" % exe_name)
+                try:
+                    os.remove(tmp)
+                except OSError:
+                    pass
+                prog.state("error", "主程序下载失败，请稍后重试", "", 0, 0, 0)
+                return 1
+            prog.state("restart", "正在替换主程序并重启…")
+            write_ready(root)            # 通知主进程退出，把 launcher.exe 让出来
+            if wait_pid:
+                prog.log("[update] 等待主程序退出…")
+                wait_process_exit(wait_pid)
+            time.sleep(0.5)
+            if not replace_file(tmp, target):
+                prog.state("error", "主程序被占用，无法替换", "", 0, 0, 0)
+                return 2
+            prog.log("  [完成] %s 已更新" % exe_name)
+            need_restart = True
 
     # 全部文件均到位后才写 version.json，避免版本号虚高导致下次误判「已是最新」
     try:
-        with open(local_ver_path, "w", encoding="utf-8", newline="\n") as f:
+        with open(local_ver_path, "w", encoding="utf-8") as f:
             json.dump(remote, f, ensure_ascii=False, indent=4)
     except OSError as e:
         prog.log("[update] 写入 version.json 失败：%s" % e)
@@ -321,9 +406,9 @@ def run_update(root, restart=True):
     else:
         prog.log("[update] 已是最新版本 %s" % remote["version"])
 
-    if restart:
-        # 主程序已经把 launcher.exe 让出来了，不管有没有变化都得把服务拉回去
-        prog.state("restart", "更新完成，正在重启" if changed else "已是最新，正在重启")
+    if need_restart and restart:
+        # 主进程确实退了，必须把服务拉回来
+        prog.state("restart", "更新完成，正在重启")
         launch_main(root)
     else:
         prog.state("done", "更新完成" if changed else "已是最新版本 %s" % remote["version"],
@@ -341,9 +426,14 @@ def main(argv=None):
             root = argv[i + 1]
     if "--no-restart" in argv:
         restart = False
+    wait_pid = 0
+    if "--wait-pid" in argv:
+        i = argv.index("--wait-pid")
+        if i + 1 < len(argv) and argv[i + 1].isdigit():
+            wait_pid = int(argv[i + 1])
     cleanup_old_copies()
     try:
-        return run_update(root, restart=restart)
+        return run_update(root, restart=restart, wait_pid=wait_pid)
     except Exception as e:
         try:
             with open(os.path.join(root, ".update.log"), "a", encoding="utf-8") as f:

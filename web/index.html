@@ -888,25 +888,45 @@ async function watchUpdate() {
   return null;
 }
 
-// 自更新模式：主进程退出、独立副本下载替换，这里等服务重新上线
+// 自更新模式：下载期间主进程仍在线（能看到进度）；需要替换主程序时才退出，这里接力等它回来
 async function watchSelfUpdate() {
-  $('updTxt').textContent = '正在下载并替换程序，完成后会自动重开…';
+  let fail = 0;
+  for (let i = 0; i < 1500; i++) {          // 最多约 10 分钟
+    await new Promise(r => setTimeout(r, 400));
+    let st = null;
+    try {
+      st = await api('update_status');
+      fail = 0;
+    } catch (e) {
+      // 服务不响应：说明主程序正在退出/替换，转去等服务重新上线
+      if (++fail >= 3) {
+        $('updTxt').textContent = '主程序正在替换，等待服务重启…';
+        return await waitServiceBack();
+      }
+      continue;
+    }
+    renderUpdProgress(st);
+    if (!st.running) {
+      const ph = (st.progress && st.progress.phase) || '';
+      if (ph === 'error') {
+        return { ok: false, running: false, done: true,
+                 error: st.error || '更新失败，详见项目目录 .update.log' };
+      }
+      return { ok: true, running: false, done: true };
+    }
+  }
+  return { ok: false, running: false, done: true, error: '更新超时，请查看项目目录下的 .update.log' };
+}
+
+// 等更新器把服务拉回来
+async function waitServiceBack() {
   for (let i = 0; i < 300; i++) {          // 最多约 5 分钟
     await new Promise(r => setTimeout(r, 1000));
     try {
       const v = await api('version');
-      if (v && v.version) {
-        let last = null;
-        try { last = await api('update_status'); } catch (e) {}
-        const ph = (last && last.progress && last.progress.phase) || '';
-        if (ph === 'error') {
-          return { ok: false, running: false, done: true,
-                   error: '部分文件更新失败，详见项目目录 .update.log' };
-        }
-        return { ok: true, running: false, done: true };
-      }
+      if (v && v.version) return { ok: true, running: false, done: true, version: v.version };
     } catch (e) {}
-    if (i % 5 === 0) $('updTxt').textContent = '正在更新，等待服务重启…（' + (i + 1) + 's）';
+    if (i % 5 === 0) $('updTxt').textContent = '正在重启，等待服务上线…（' + (i + 1) + 's）';
   }
   return { ok: false, running: false, done: true, error: '等待服务重启超时，请手动双击 launcher.exe' };
 }

@@ -21,7 +21,7 @@ if ($needBuild) {
     if (Test-Path launcher.exe) { Move-Item launcher.exe launcher.exe.bak -Force }
     if (Test-Path build_tmp) { Remove-Item build_tmp -Recurse -Force }
 
-    $pyArgs = @('--onefile','--name','launcher',
+    $pyArgs = @('--onefile','--noconsole','--name','launcher',
         '--distpath',"$root\build_tmp\dist",
         '--workpath',"$root\build_tmp\build",
         '--specpath',"$root\build_tmp",

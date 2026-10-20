@@ -25,6 +25,23 @@ import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+# 用 --noconsole 打包时没有标准流，print() 会直接抛异常，这里兜底
+class _NullWriter(object):
+    def write(self, *a):
+        return 0
+
+    def flush(self):
+        pass
+
+    def isatty(self):
+        return False
+
+
+if sys.stdout is None:
+    sys.stdout = _NullWriter()
+if sys.stderr is None:
+    sys.stderr = _NullWriter()
+
 if getattr(sys, "frozen", False):
     # PyInstaller 打包后：exe 所在目录 = 项目根目录（APK 在此）
     _EXE_DIR = os.path.dirname(sys.executable)
@@ -181,8 +198,39 @@ def _updater_cmd():
         copy = _copy_self_to_temp("upd")
         if not copy:
             return None
-        return [copy, "--update", "--root", PROJECT_DIR]
-    return [sys.executable, os.path.join(BASE_DIR, "updater.py"), "--root", PROJECT_DIR]
+        return [copy, "--update", "--root", PROJECT_DIR, "--wait-pid", str(os.getpid())]
+    return [sys.executable, os.path.join(BASE_DIR, "updater.py"), "--root", PROJECT_DIR,
+            "--wait-pid", str(os.getpid())]
+
+
+def _watch_update_ready():
+    """盯着更新器：它要替换 launcher.exe 时会写 .update.ready，这时本进程才退出让位。
+
+    不需要替换主程序时（比如只更新了前端文件）本进程留在原地继续服务，
+    用户看到进度条走完、刷新页面即可，不会白断一次。
+    """
+    ready = os.path.join(PROJECT_DIR, ".update.ready")
+    deadline = time.time() + 1800
+    while time.time() < deadline:
+        time.sleep(0.4)
+        if os.path.isfile(ready):
+            try:
+                os.remove(ready)
+            except OSError:
+                pass
+            threading.Timer(0.3, lambda: os._exit(0)).start()
+            return
+        st = _read_update_progress()
+        if st and st.get("phase") in ("done", "uptodate", "error", "offline"):
+            ok = st.get("phase") in ("done", "uptodate")
+            with LOCK:
+                UPDATE_STATE.update({"running": False, "done": True, "ok": ok,
+                                     "deferred": False,
+                                     "error": "" if ok else (st.get("msg") or "更新失败")})
+            return
+    with LOCK:
+        UPDATE_STATE.update({"running": False, "done": True, "ok": False,
+                             "error": "更新超时"})
 
 
 def auto_check_update(delay=5.0):
@@ -198,9 +246,7 @@ def auto_check_update(delay=5.0):
         rv = remote.get("version") or ""
         if not rv or ver_tuple(rv) <= ver_tuple(local):
             return
-        ok, _err = start_self_update()
-        if ok:
-            threading.Timer(1.2, lambda: os._exit(0)).start()
+        start_self_update()
     except Exception:
         pass
 
@@ -233,6 +279,7 @@ def start_self_update():
         with LOCK:
             UPDATE_STATE.update({"running": False, "done": True, "ok": False, "error": str(e)})
         return False, str(e)
+    threading.Thread(target=_watch_update_ready, daemon=True).start()
     return True, ""
 
 # ---------- APK 包名 / 启动 Activity 解析（纯 Python 解析二进制 AndroidManifest.xml，不依赖 aapt） ----------
@@ -2263,8 +2310,6 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(200, {"ok": False, "running": True, "error": err})
                 return
             self._send(200, {"ok": True, "started": True, "self": True})
-            # 响应先发出去，再把 launcher.exe 让给更新器
-            threading.Timer(1.0, lambda: os._exit(0)).start()
             return
         if self.path.split("?")[0] == "/api/restart":
             # 重启主程序：复制自身到 %TEMP%，由副本在旧进程退出后拉起新版

@@ -8,7 +8,7 @@ if exist "%~dp0launcher.exe.bak" del /f /q "%~dp0launcher.exe.bak"
 if exist "%~dp0launcher.exe" move /y "%~dp0launcher.exe" "%~dp0launcher.exe.bak" >nul
 if exist "%~dp0build_tmp" rmdir /s /q "%~dp0build_tmp"
 
-pyinstaller --onefile --name launcher ^
+pyinstaller --onefile --noconsole --name launcher ^
   --distpath "%~dp0build_tmp\dist" ^
   --workpath "%~dp0build_tmp\build" ^
   --specpath "%~dp0build_tmp" ^

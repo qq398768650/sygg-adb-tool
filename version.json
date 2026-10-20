@@ -1,11 +1,11 @@
 {
-  "version": "0.1.24",
-  "notes": "更新模块改为独立 updater.py + 自更新：点更新后由临时副本完成替换并拉起新版，不再需要重启或额外脚本",
+  "version": "0.1.25",
+  "notes": "更新不再弹黑框；更新进度实时可见，仅替换主程序时短暂重启",
   "files": {
-    "launcher.exe": "6d4c2c65af06d50b5e80c63e48375e8b",
-    "web/server.py": "44c037448618603827d9de3905af2ad1",
-    "web/index.html": "5c3526be2385cf75218adbee0ecac720",
-    "web/updater.py": "42feb7555383be878a8aa93d4ff8d01e",
+    "launcher.exe": "8128efc98a3001819ac83ddb38d8767e",
+    "web/server.py": "867b13b11ff66b060b65243d2c13f582",
+    "web/index.html": "24583e458b58c38ed3816b5a49a84763",
+    "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
     "scrcpy/avformat-61.dll": "5b977bb2cc8238e23130e3e009c77e66",
