@@ -813,6 +813,16 @@ def set_device_owner(serial, pkg, admin_component=None):
     if "success" in low:
         log(serial, f"       [OK] Device Owner 已设：{want}")
         return True
+    # ⚠ 实测（Android 11 / RK3566）：设备已经 finalize 过 provisioning state 时，dpm 会抛
+    #   IllegalStateException: Not allowed to change provisioning state unless current
+    #   provisioning state is unmanaged, and new state is finalized.
+    #   但 Device Owner **实际已经设上了**（dumpsys 可见）⇒ 只看 dpm 输出会误判成失败，必须复检。
+    if "illegalstateexception" in low or "provisioning state" in low:
+        time.sleep(1)
+        if device_owner_status(serial).replace(" ", "") == want.replace(" ", ""):
+            log(serial, f"       [OK] Device Owner 已设：{want}")
+            log(serial, "       [INFO] dpm 报了 provisioning state 异常，但复检确认已生效（该固件已知现象，不影响使用）")
+            return True
     # 常见失败原因翻译成人话，现场不用再去查英文报错
     hints = []
     if "already several users" in low or "multiple users" in low:
@@ -827,6 +837,121 @@ def set_device_owner(serial, pkg, admin_component=None):
     for h in hints:
         log(serial, f"       [HINT] {h}")
     return False
+
+
+# ---- Device Owner / Device Admin 的物理落点（Android 11 实测） ----
+# DO 身份在 device_owner_2.xml，admin 列表在 device_policies.xml —— 两个都要清才卸得掉。
+DP_FILE = "/data/system/device_policies.xml"
+DO_FILE = "/data/system/device_owner_2.xml"
+DP_BAK = "/data/local/tmp/device_policies.xml.bak"
+DO_BAK = "/data/local/tmp/device_owner_2.xml.bak"
+
+
+def wait_device_boot(serial, timeout=200):
+    """等设备重启回来并完成开机（sys.boot_completed=1）。
+
+    硬重启后 adb 会先断开几秒，必须先等它重新连上再查 boot_completed，
+    否则查到的是重启前的旧值，会误判"已经回来了"。"""
+    deadline = time.time() + timeout
+    time.sleep(5)                       # 给系统时间真正断开
+    while time.time() < deadline:       # 等重新连上
+        rc, out = adb_shell(serial, ["get-state"], timeout=10)
+        if "device" in (out or ""):
+            break
+        time.sleep(2)
+    time.sleep(3)
+    while time.time() < deadline:       # 等开机真正完成
+        rc, out = adb_shell(serial, ["shell", "getprop", "sys.boot_completed"], timeout=15)
+        if (out or "").strip() == "1":
+            return True
+        time.sleep(4)
+    return False
+
+
+def clear_device_owner(serial):
+    """彻底解除本机 Device Owner + Device Admin，让 App 能正常卸载 / 换景区包。
+
+    ⚠ Android 11（RK3566 真机实测）五条缺一不可：
+    1) `dpm remove-active-admin` 这条路是死的：`SecurityException: Attempt to remove
+       non-test admin` —— Android 11 起只允许用 adb 移除 manifest 里声明
+       `android:testOnly="true"` 的 admin，正式包不会有这个标记。
+    2) Device Owner 身份**不在** device_policies.xml，而在 /data/system/device_owner_2.xml。
+       只改 device_policies.xml，DO 纹丝不动。
+    3) 只删 device_owner_2.xml 也不够：admin 身份同样拦卸载，
+       报 `Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]`。⇒ 两个文件都要清。
+    4) `adb reboot` 是正常重启，system_server 关闭时会把内存状态写回文件、把改动覆盖掉；
+       本机 `reboot -f` 还不支持（`usage: reboot [-p]`）。只能 `sync` 后
+       `echo b > /proc/sysrq-trigger` 硬重启。
+    5) device_policies.xml **只删 <admin> 节点**，保留 provisioning-state / setup-complete
+       原值 —— 动这两个会破坏后续 dpm set-device-owner（报 IllegalStateException）。
+
+    全程需要 root（adb root，只有 userdebug/eng 固件支持）。
+    返回 True = 已解除并复检通过。
+    """
+    log(serial, "[解除DO] 检查 root 权限…")
+    rc, out = adb_shell(serial, ["shell", "id"], timeout=20)
+    if "uid=0" not in (out or ""):
+        adb_shell(serial, ["root"], timeout=30)
+        time.sleep(3)
+        rc, out = adb_shell(serial, ["shell", "id"], timeout=20)
+    if "uid=0" not in (out or ""):
+        log(serial, "       [FAIL] 当前不是 root，无法解除 Device Owner")
+        log(serial, "       [HINT] 该机型需 userdebug/eng 固件才能 `adb root`；量产固件只能用「恢复出厂设置」")
+        return False
+    log(serial, "       [OK] root 已就绪")
+
+    log(serial, "[解除DO] 备份策略文件…")
+    adb_shell(serial, ["shell", f"cp {DP_FILE} {DP_BAK}"], timeout=20)
+    adb_shell(serial, ["shell", f"cp {DO_FILE} {DO_BAK}"], timeout=20)
+    log(serial, f"       已备份到 {DP_BAK} / {DO_BAK}")
+
+    log(serial, "[解除DO] 移除 Device Admin 记录…")
+    rc, dp_text = adb_shell(serial, ["shell", f"cat {DP_FILE}"], timeout=20)
+    dp_text = dp_text or ""
+    # 只删 <admin>…</admin> 块（含自闭合形式），根节点属性原样保留
+    new_dp = re.sub(r"<admin\b[^>]*>.*?</admin>\s*", "", dp_text, flags=re.S)
+    new_dp = re.sub(r"<admin\b[^>]*/>\s*", "", new_dp)
+    if "<admin" not in dp_text:
+        log(serial, "       device_policies.xml 里没有 admin 节点，跳过")
+    else:
+        local_tmp = os.path.join(PROJECT_DIR, ".dp_new.xml")
+        try:
+            with open(local_tmp, "w", encoding="utf-8") as f:
+                f.write(new_dp)
+            adb_shell(serial, ["push", local_tmp, "/data/local/tmp/dp_new.xml"], timeout=30)
+            # 写到已存在的文件（不是 mv 覆盖），SELinux 标签与属主才保得住
+            adb_shell(serial, ["shell", f"cat /data/local/tmp/dp_new.xml > {DP_FILE} && sync"], timeout=30)
+            log(serial, "       [OK] 已移除 Device Admin 记录")
+        finally:
+            try:
+                os.remove(local_tmp)
+            except Exception:
+                pass
+
+    log(serial, "[解除DO] 移除 Device Owner 记录…")
+    adb_shell(serial, ["shell", f"rm -f {DO_FILE}; sync"], timeout=20)
+    log(serial, "       [OK] 已移除")
+
+    log(serial, "[解除DO] 硬重启（正常重启会把内存状态写回、改动被覆盖）…")
+    adb_shell(serial, ["shell", "echo b > /proc/sysrq-trigger"], timeout=20)
+    if not wait_device_boot(serial, timeout=220):
+        log(serial, "       [FAIL] 等待开机超时，请手动确认设备状态后再试")
+        return False
+    log(serial, "       [OK] 设备已重启完成")
+
+    log(serial, "[解除DO] 复检…")
+    owner = device_owner_status(serial)
+    rc, out2 = adb_shell(serial, ["shell", "dumpsys", "device_policy"], timeout=30)
+    admin_lines = re.findall(r"^\s{4}(\S+/\S+):\s*$", out2 or "", flags=re.M)
+    if owner:
+        log(serial, f"       [FAIL] 解除后仍存在 Device Owner：{owner}")
+        return False
+    if admin_lines:
+        log(serial, f"       [FAIL] 解除后仍有 Device Admin：{', '.join(admin_lines)}")
+        return False
+    log(serial, "       [OK] Device Owner / Device Admin 均已清空，现在可以正常卸载或换包")
+    log(serial, "       [INFO] 备份仍在 /data/local/tmp/*.bak，需要时可用 cat 覆盖回去")
+    return True
 
 
 FSA_IN_APK = "assets/aikit/fsa/"
@@ -2808,6 +2933,34 @@ class Handler(BaseHTTPRequestHandler):
             for s in serials:
                 threading.Thread(target=uninstall_one, args=(s, pkg)).start()
             self._send(200, {"ok": True, "started": len(serials)})
+            return
+        if self.path.split("?")[0] == "/api/clear_device_owner":
+            data = self._read_body()
+            serials = data.get("serials") or []
+            if not serials:
+                serials = list_devices()
+            for s in serials:
+                with LOCK:
+                    STATUS[s] = {"serial": s, "state": "running", "steps": [],
+                                 "logs": [], "result": "RUNNING",
+                                 "ok": 0, "fail": 0, "skip": 0, "dev_info": {}}
+
+                def _run_clear(serial=s):
+                    try:
+                        ok = clear_device_owner(serial)
+                    except Exception as e:
+                        log(serial, f"[解除DO] [FAIL] 异常：{e}")
+                        ok = False
+                    with LOCK:
+                        st = STATUS.get(serial) or {}
+                        st["state"] = "done"
+                        st["result"] = "OK" if ok else "FAIL"
+                        st["ok"] = 1 if ok else 0
+                        st["fail"] = 0 if ok else 1
+                        STATUS[serial] = st
+
+                threading.Thread(target=_run_clear, daemon=True).start()
+            self._send(200, {"ok": True, "started": len(serials), "serials": serials})
             return
         if self.path.split("?")[0] == "/api/install":
             data = self._read_body()

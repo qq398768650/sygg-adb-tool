@@ -237,14 +237,18 @@
     color:var(--text); overflow:hidden; text-overflow:ellipsis;
   }
   .dev .appsel:disabled{ color:var(--dim); cursor:not-allowed; }
-  .dev .trash{
+  .dev .trash, .dev .dounlock{
     flex-shrink:0; display:grid; place-items:center; width:24px; height:24px;
     border-radius:5px; border:1px solid rgba(239,68,68,.35); background:transparent;
     color:#FCA5A5; cursor:pointer; transition:.15s;
   }
-  .dev .trash svg{ width:12px; height:12px; }
+  .dev .trash svg, .dev .dounlock svg{ width:12px; height:12px; }
   .dev .trash:hover{ background:rgba(239,68,68,.16); border-color:rgba(239,68,68,.7); color:#fff; }
   .dev .trash:disabled{ opacity:.45; cursor:wait; }
+  /* 解除 Device Owner：橙色，与「卸载」区分开 */
+  .dev .dounlock{ border-color:rgba(251,146,60,.35); color:#FDBA74; }
+  .dev .dounlock:hover{ background:rgba(251,146,60,.16); border-color:rgba(251,146,60,.7); color:#fff; }
+  .dev .dounlock:disabled{ opacity:.45; cursor:wait; }
 
   /* ---------- 按钮 ---------- */
   .btn{
@@ -1231,6 +1235,12 @@ function renderDevices() {
       uninstallFromCard(btn);
     });
   });
+  box.querySelectorAll('.dounlock').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      clearDeviceOwnerFromCard(btn);
+    });
+  });
 }
 
 // 设备卡片里的「已装应用下拉框 + 垃圾桶」HTML
@@ -1249,6 +1259,7 @@ function appLineHtml(s) {
   const opts = d.apps.map(a =>
     `<option value="${esc(a.pkg)}"${a.pkg === cur ? ' selected' : ''}>${esc(a.pkg)}</option>`).join('');
   return `<div class="appline"><select class="appsel" data-sn="${s}" title="设备上已安装的应用">${opts}</select>` +
+         `<button class="dounlock" data-sn="${s}" title="解除 Device Owner / Admin（解除后本机才能正常卸载或换景区包；会硬重启设备，约 2 分钟）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg></button>` +
          `<button class="trash" data-sn="${s}" title="卸载选中的应用"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg></button></div>`;
 }
 
@@ -2094,6 +2105,45 @@ function uninstallFromCard(btn) {
   const pkg = sel ? sel.value : '';
   if (!pkg) { toast('该设备没有可卸载的应用', 'err'); return; }
   return doUninstall(serial, pkg, btn, '…', '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>');
+}
+
+// 设备卡片开锁按钮：彻底解除 Device Owner / Device Admin
+// 为什么只能这样做：设过 DO 的应用在 Android 11 下 adb uninstall 会报
+//   Failure [DELETE_FAILED_DEVICE_POLICY_MANAGER]，而 dpm remove-active-admin 又只允许
+//   移除 android:testOnly="true" 的 admin（正式包没有）⇒ 只能在 root 下改两个系统策略
+//   文件再硬重启。DO 在 /data/system/device_owner_2.xml，admin 在 device_policies.xml，
+//   两个都得清（实测少一个都卸不掉）。
+// 后端改完会硬重启设备，全程约 2 分钟（含等开机），所以超时给足 260 秒。
+async function clearDeviceOwnerFromCard(btn) {
+  const serial = btn.dataset.sn;
+  const ok = await confirmUI(
+    '解除该设备的 Device Owner / Device Admin？\n\n' +
+    `设备：${serial}\n\n` +
+    '解除后本机才能正常卸载或换景区包。\n' +
+    '过程会改系统策略文件并【硬重启】设备（约 2 分钟，期间黑屏）。\n\n' +
+    '前提：设备支持 adb root（userdebug/eng 固件）。');
+  if (!ok) return false;
+  btn.disabled = true;
+  try {
+    const r = await api('clear_device_owner', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serials: [serial] }) });
+    if (r.error) throw new Error(r.error);
+    toast('已开始解除，设备即将硬重启，请等待…', 'ok', 6000);
+    const res = await waitUninstall(serial, 260000);
+    if (res === true) {
+      toast('Device Owner 已解除，现在可以正常卸载或换包', 'ok', 6000);
+      refreshDevices();
+    } else {
+      toast(res === null ? '等待超时，请点设备卡片看日志' : '解除失败，请查看日志', 'err', 6000);
+    }
+    return res === true;
+  } catch (e) {
+    toast('解除失败：' + e.message, 'err', 6000);
+    return false;
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ---------- logcat 查看（按设备实时刷新，2 秒轮询快照） ----------
