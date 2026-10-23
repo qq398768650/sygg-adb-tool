@@ -4,6 +4,10 @@
 
 版本号采用语义化 `v主.次.修订`（如 `v0.1.0`），每次发布默认修订号 +1。
 
+## v0.1.30 - 2026-10-24
+
+新增「解除 Device Owner」一键操作：清 /data/system/device_owner_2.xml 与 device_policies.xml 里的 admin 节点，sync 后硬重启（echo b > /proc/sysrq-trigger），解决设过 DO 的包在 Android 11 卸载报 DELETE_FAILED_DEVICE_POLICY_MANAGER
+
 ## v0.1.29 - 2026-10-24
 
 安装流程新增 Device Owner 一条龙：装完自动 dpm set-device-owner（admin 类名从 APK 清单读取，Android 11 用 dumpsys device_policy 判断归属，同一 owner 幂等跳过）；卸载遇到策略保护自动改走覆盖安装保留 owner 身份

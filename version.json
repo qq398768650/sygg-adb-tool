@@ -1,10 +1,10 @@
 {
-  "version": "0.1.29",
-  "notes": "安装流程新增 Device Owner 一条龙：装完自动 dpm set-device-owner（admin 类名从 APK 清单读取，Android 11 用 dumpsys device_policy 判断归属，同一 owner 幂等跳过）；卸载遇到策略保护自动改走覆盖安装保留 owner 身份",
+  "version": "0.1.30",
+  "notes": "新增「解除 Device Owner」一键操作：清 /data/system/device_owner_2.xml 与 device_policies.xml 里的 admin 节点，sync 后硬重启（echo b > /proc/sysrq-trigger），解决设过 DO 的包在 Android 11 卸载报 DELETE_FAILED_DEVICE_POLICY_MANAGER",
   "files": {
-    "launcher.exe": "8023a077b231cf375b0b5b700013ce77",
-    "web/server.py": "73d6f60d097af6b9a7ca09e37dbb0f15",
-    "web/index.html": "4e452f2737f6b4be9cb6e47a19fe7ffe",
+    "launcher.exe": "adedf4355a8f1f6e36b9cfc3bdff342c",
+    "web/server.py": "85efbabe0b2918951b03830ca40c1706",
+    "web/index.html": "7a5cf711d63d0aaed437b2b9da9e4a34",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
