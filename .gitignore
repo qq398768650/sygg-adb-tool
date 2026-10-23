@@ -9,6 +9,7 @@ fsa/
 # ==== 运行期数据（设备 / WiFi 等，含敏感信息） ====
 web/prefs.json
 web/macmap.json
+web/.apk_external.json
 app.config
 
 # ==== Python 缓存 ====

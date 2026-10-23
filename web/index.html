@@ -589,12 +589,13 @@
   <div class="panel">
     <h2><span class="n">1</span>选择 APK</h2>
     <div class="dropzone" id="dz">
-      将 <b>.apk</b> 文件拖到此处，或 <span class="sel">点击选择</span>
+      将 <b>.apk</b> 文件拖到此处（会复制进项目目录），或 <span class="sel">点击选择本机文件</span>
     </div>
     <div id="apkwarn" style="margin-top:8px;font-size:12px;color:var(--warn);display:none">已通过后端自动列出项目目录 APK，可下拉选择</div>
     <div class="row" style="margin-top:12px">
       <select id="apkSelect" style="flex:1"></select>
     </div>
+    <div style="margin-top:6px;font-size:11px;color:var(--muted,#888)">点击上方虚线框选本机任意位置的 APK：直接读取磁盘路径，不复制、不上传，几 GB 的包也能秒选。</div>
     <div class="err" id="apkErr"></div>
   </div>
 
@@ -792,7 +793,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const state = { apks: [], devices: [], pending: [], statusMap: {}, wifiMap: {}, apkPath: "", running: false,
+const state = { apks: [], extApks: [], devices: [], pending: [], statusMap: {}, wifiMap: {}, apkPath: "", running: false,
                 devicesChecked: {}, appSel: {} };
 
 let toastSeq = 0;
@@ -1002,6 +1003,62 @@ function saveWifiPrefs(immediate) {
   else prefsTimer = setTimeout(send, 400);
 }
 
+// APK 下拉：项目目录内的用文件名，外部选过的是绝对路径（标签显示「文件名 — 所在目录」）
+function apkBase(p) { return String(p).split(/[\\/]/).pop(); }
+function apkDir(p) {
+  const s = String(p);
+  const i = Math.max(s.lastIndexOf('\\'), s.lastIndexOf('/'));
+  return i > 0 ? s.slice(0, i) : '';
+}
+function renderApkOptions(select) {
+  const sel = $('apkSelect');
+  const cur = typeof select === 'string' ? select : sel.value;
+  const opts = [];
+  state.apks.forEach(a => opts.push(`<option value="${esc(a)}">${esc(a)}</option>`));
+  state.extApks.forEach(p =>
+    opts.push(`<option value="${esc(p)}">📁 ${esc(apkBase(p))} — ${esc(apkDir(p))}</option>`));
+  if (!opts.length) {
+    sel.innerHTML = '<option value="">(还没选 APK，点击上方虚线框从本机选择)</option>';
+    $('apkwarn').style.display = 'block';
+    return;
+  }
+  sel.innerHTML = opts.join('');
+  $('apkwarn').style.display = 'none';
+  if (cur && Array.from(sel.options).some(o => o.value === cur)) sel.value = cur;
+}
+
+// 选中一个 APK（绝对路径或项目目录文件名），刷新下拉、包名、fsa 状态
+function useApkPath(path) {
+  if (!path) return;
+  if (!state.extApks.some(p => p.toLowerCase() === path.toLowerCase())) {
+    state.extApks.unshift(path);
+  }
+  renderApkOptions(path);
+  const dzEl = $('dz');
+  dzEl.innerHTML = `已选择：<b>${esc(apkBase(path))}</b>` +
+    `<br><span style="font-size:11px;color:#4ade80">直接读取本地路径，未复制、未上传</span>`;
+  autoFillFromApk(false);
+  refreshFsaStatus();
+}
+
+// 点击虚线框：让后端弹 Windows 原生文件框，拿到绝对路径直接给 adb 用
+async function pickLocalApk() {
+  const dzEl = $('dz');
+  const old = dzEl.innerHTML;
+  dzEl.innerHTML = '<b>正在选择…</b><br><span style="font-size:11px;color:var(--info)">请在弹出的文件框里选 APK</span>';
+  let picked = '';
+  try {
+    const r = await api('pick_apk', { method: 'POST' });
+    if (r.error) { toast(r.error, 'err'); return; }
+    picked = r.apk || '';
+  } catch (e) {
+    toast('打开文件选择框失败：' + e.message, 'err');
+  } finally {
+    if (!picked) dzEl.innerHTML = old;
+  }
+  if (picked) useApkPath(picked);
+}
+
 // 根据当前选中的 APK 自动识别并回填包名 / 启动 Activity
 function autoFillFromApk(silent) {
   const sel = $('apkSelect') ? $('apkSelect').value : '';
@@ -1034,15 +1091,9 @@ function init() {
   $('pass').addEventListener('change', () => saveWifiPrefs(true));
   api('apks').then(d => {
     state.apks = d.apks || [];
-    const sel = $('apkSelect');
-    if (!state.apks.length) {
-      sel.innerHTML = '<option value="">(目录中无 .apk，请拖入)</option>';
-      $('apkwarn').style.display = 'block';
-    } else {
-      sel.innerHTML = state.apks.map(a => `<option value="${a}">${a}</option>`).join('');
-      $('apkwarn').style.display = 'none';
-      autoFillFromApk(true);   // 自动识别包名 / Activity
-    }
+    state.extApks = d.external || [];
+    renderApkOptions();
+    if (state.apks.length || state.extApks.length) autoFillFromApk(true);   // 自动识别包名 / Activity
   }).catch(()=>{
     $('apkwarn').style.display = 'block';
   });
@@ -1782,31 +1833,23 @@ function uploadApk(file) {
     if (xhr.status === 200) {
       const r = JSON.parse(xhr.responseText);
       if (!state.apks.includes(r.apk)) state.apks.unshift(r.apk);
-      const sel = $('apkSelect');
-      sel.innerHTML = state.apks.map(a => `<option value="${a}">${a}</option>`).join('');
-      sel.value = r.apk;
-      dz.innerHTML = `已上传：<b>${r.apk}</b><br><span style="font-size:11px;color:#4ade80">可点「并行安装」直接使用</span>`;
+      renderApkOptions(r.apk);
+      dz.innerHTML = `已上传：<b>${esc(r.apk)}</b><br><span style="font-size:11px;color:#4ade80">可点「并行安装」直接使用</span>`;
       toast(`APK 已上传：${r.apk}`, 'ok');
       autoFillFromApk(false);   // 上传完自动识别包名
+      refreshFsaStatus();
     } else {
-      dz.innerHTML = '上传失败（' + xhr.status + '）';
-      toast('APK 上传失败', 'err');
+      let msg = 'HTTP ' + xhr.status;
+      try { msg = JSON.parse(xhr.responseText).error || msg; } catch (e) {}
+      dz.innerHTML = `上传失败：<span style="color:#f87171">${esc(msg)}</span>`;
+      toast('APK 上传失败：' + msg, 'err');
     }
   };
-  xhr.onerror = () => { dz.innerHTML = '上传失败'; toast('APK 上传失败', 'err'); };
+  xhr.onerror = () => { dz.innerHTML = '上传失败：网络中断'; toast('APK 上传失败', 'err'); };
   xhr.send(file);
 }
 const dz = $('dz');
-dz.addEventListener('click', async () => {
-  if (window.showOpenFilePicker) {
-    const [h] = await window.showOpenFilePicker({ types:[{description:'APK',accept:{'application/vnd.android.package-archive':['.apk']}}] });
-    uploadApk(await h.getFile());
-  } else {
-    const input = document.createElement('input'); input.type='file'; input.accept='.apk';
-    input.onchange = () => { if (input.files[0]) uploadApk(input.files[0]); };
-    input.click();
-  }
-});
+dz.addEventListener('click', () => { pickLocalApk(); });
 ['dragenter','dragover'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.add('drag');}));
 ['dragleave','drop'].forEach(ev=>dz.addEventListener(ev,e=>{e.preventDefault();dz.classList.remove('drag');}));
 dz.addEventListener('drop', e => {
@@ -1817,7 +1860,7 @@ dz.addEventListener('drop', e => {
 // fsa 数据包：优先用 APK 内置的 assets/aikit/fsa，其次本地 fsa（手动上传）
 function refreshFsaStatus() {
   const apk = ($('apkSelect') ? $('apkSelect').value : '') || '';
-  const q = apk ? ('?apk=' + encodeURIComponent(apk.split(/[\\/]/).pop())) : '';
+  const q = apk ? ('?apk=' + encodeURIComponent(apk)) : '';
   api('fsa_status' + q).then(d => {
     const el = $('fsaStatus');
     if (!el) return;

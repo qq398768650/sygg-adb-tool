@@ -1500,6 +1500,104 @@ def resolve_apk(data):
     return apk, ""
 
 
+EXT_APK_FILE = os.path.join(BASE_DIR, ".apk_external.json")
+EXT_APK_LOCK = threading.Lock()      # 保护「本机选过的外部 APK」列表的读-改-写
+PICK_LOCK = threading.Lock()         # 同一时间只允许弹一个原生文件选择框
+
+
+def load_ext_apks():
+    """最近通过「本机选择」用过的外部 APK 绝对路径，只返回仍然存在的文件。"""
+    try:
+        with open(EXT_APK_FILE, "r", encoding="utf-8") as f:
+            items = json.load(f)
+    except Exception:
+        return []
+    if not isinstance(items, list):
+        return []
+    return [p for p in items if isinstance(p, str) and os.path.isfile(p)][:20]
+
+
+def save_ext_apk(path):
+    """记录一个外部 APK 路径（最新的在最前，最多 20 条）。"""
+    with EXT_APK_LOCK:
+        items = [p for p in load_ext_apks() if os.path.normcase(p) != os.path.normcase(path)]
+        items.insert(0, path)
+        try:
+            with open(EXT_APK_FILE, "w", encoding="utf-8") as f:
+                json.dump(items[:20], f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+
+def pick_apk_dialog(initial_dir=""):
+    """弹 Windows 原生「打开」对话框选 APK，返回绝对路径；取消返回空串。
+
+    服务和浏览器在同一台机器上，直接拿磁盘路径交给 adb 即可，
+    不必像浏览器上传那样把几 GB 的包再复制一份到项目目录。
+    """
+    if os.name != "nt":
+        return ""
+    import ctypes
+
+    class OPENFILENAMEW(ctypes.Structure):
+        _fields_ = [
+            ("lStructSize", ctypes.c_uint32),
+            ("hwndOwner", ctypes.c_void_p),
+            ("hInstance", ctypes.c_void_p),
+            ("lpstrFilter", ctypes.c_wchar_p),
+            ("lpstrCustomFilter", ctypes.c_wchar_p),
+            ("nMaxCustFilter", ctypes.c_uint32),
+            ("nFilterIndex", ctypes.c_uint32),
+            ("lpstrFile", ctypes.c_wchar_p),
+            ("nMaxFile", ctypes.c_uint32),
+            ("lpstrFileTitle", ctypes.c_wchar_p),
+            ("nMaxFileTitle", ctypes.c_uint32),
+            ("lpstrInitialDir", ctypes.c_wchar_p),
+            ("lpstrTitle", ctypes.c_wchar_p),
+            ("Flags", ctypes.c_uint32),
+            ("nFileOffset", ctypes.c_uint16),
+            ("nFileExtension", ctypes.c_uint16),
+            ("lpstrDefExt", ctypes.c_wchar_p),
+            ("lCustData", ctypes.c_void_p),
+            ("lpfnHook", ctypes.c_void_p),
+            ("lpTemplateName", ctypes.c_wchar_p),
+            ("pvReserved", ctypes.c_void_p),
+            ("dwReserved", ctypes.c_uint32),
+            ("FlagsEx", ctypes.c_uint32),
+        ]
+
+    OFN_FILEMUSTEXIST = 0x00001000
+    OFN_PATHMUSTEXIST = 0x00000800
+    OFN_NOCHANGEDIR = 0x00000008    # 别让对话框改掉服务进程的工作目录
+    OFN_EXPLORER = 0x00080000
+    OFN_LONGNAMES = 0x00200000
+
+    buf = ctypes.create_unicode_buffer(32768)
+    ofn = OPENFILENAMEW()
+    ofn.lStructSize = ctypes.sizeof(OPENFILENAMEW)
+    try:
+        ofn.hwndOwner = ctypes.windll.user32.GetForegroundWindow()
+    except Exception:
+        ofn.hwndOwner = None
+    ofn.lpstrFilter = "APK 安装包\0*.apk\0所有文件\0*.*\0"
+    ofn.lpstrFile = ctypes.cast(buf, ctypes.c_wchar_p)
+    ofn.nMaxFile = len(buf)
+    ofn.lpstrTitle = "选择 APK（直接读取本地文件，不复制）"
+    ofn.lpstrDefExt = "apk"
+    if initial_dir and os.path.isdir(initial_dir):
+        ofn.lpstrInitialDir = initial_dir
+    ofn.Flags = (OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR
+                 | OFN_EXPLORER | OFN_LONGNAMES)
+    try:
+        ctypes.windll.user32.AllowSetForegroundWindow(-1)
+        # 对话框是模态的，会一直阻塞到这个线程拿到结果
+        if not ctypes.windll.comdlg32.GetOpenFileNameW(ctypes.byref(ofn)):
+            return ""
+    except Exception:
+        return ""
+    return buf.value or ""
+
+
 def list_devices_detail():
     """返回 [(serial, state)]，state 为 adb 报的 device / unauthorized / offline 等。
 
@@ -2125,26 +2223,23 @@ class Handler(BaseHTTPRequestHandler):
             apks = [f for f in os.listdir(PROJECT_DIR)
                     if f.lower().endswith(".apk")]
             apks = sorted(apks, key=str.lower)
-            self._send(200, {"apks": apks})
+            # external：本机选过的外部 APK 绝对路径（不在项目目录里，也不复制过来）
+            self._send(200, {"apks": apks, "external": load_ext_apks()})
             return
         if path == "/api/apk_info":
-            # 解析指定 APK 的包名与启动 Activity（相对项目目录，或不带路径时按目录内文件名）
+            # 解析指定 APK 的包名与启动 Activity（项目目录内的文件名，或任意本地绝对路径）
             qs = self.path.split("?", 1)[1] if "?" in self.path else ""
             apk_name = ""
             for kv in qs.split("&"):
                 if kv.startswith("apk="):
                     apk_name = urllib.parse.unquote(kv[4:])
                     break
-            apk_path = os.path.basename(apk_name.strip())
-            if not apk_path:
-                self._send(400, {"error": "apk required"})
-                return
-            full = os.path.join(PROJECT_DIR, apk_path)
-            if not os.path.isfile(full):
-                self._send(404, {"error": f"APK not found: {apk_path}"})
+            full, err = resolve_apk({"apk": apk_name})
+            if err:
+                self._send(404, {"error": err})
                 return
             pkg, act = parse_apk_manifest(full)
-            self._send(200, {"apk": apk_path, "pkg": pkg or "", "act": act or ""})
+            self._send(200, {"apk": os.path.basename(full), "pkg": pkg or "", "act": act or ""})
             return
         if path == "/api/apps":
             # 列出指定设备已安装的第三方应用
@@ -2187,23 +2282,25 @@ class Handler(BaseHTTPRequestHandler):
                         (files if is_fsa_file(fn) else bad).append(rel)
             # 顺便报告当前选中 APK 是否内置 assets/aikit/fsa
             q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-            apk_name = os.path.basename((q.get("apk") or [""])[0])
+            apk_arg = (q.get("apk") or [""])[0]
             apk_has_fsa, apk_fsa_count, apk_fsa_bad = None, 0, []
-            if apk_name:
-                apk_path = os.path.join(PROJECT_DIR, apk_name)
-                if os.path.isfile(apk_path):
+            apk_base = os.path.basename(apk_arg.replace("\\", "/")) if apk_arg else ""
+            if apk_arg:
+                # 支持任意本地绝对路径（本机选择的外部 APK）
+                apk_path, _err = resolve_apk({"apk": apk_arg})
+                if apk_path and os.path.isfile(apk_path):
                     n, ab = fsa_in_apk_report(apk_path)
                     if n is not None:
                         apk_has_fsa, apk_fsa_count, apk_fsa_bad = n > 0, n, ab
             self._send(200, {"exists": os.path.isdir(fsa_dir),
                              "count": len(files), "files": files[:200],
                              "bad_count": len(bad), "bad_files": bad[:50],
-                             "apk": apk_name,
+                             "apk": apk_base,
                              "apk_has_fsa": apk_has_fsa,
                              "apk_fsa_count": apk_fsa_count,
                              "apk_fsa_bad": apk_fsa_bad[:50],
                              "local_apk": read_fsa_meta().get("apk", ""),
-                             "local_for_apk": bool(apk_name and read_fsa_meta().get("apk") == apk_name)})
+                             "local_for_apk": bool(apk_base and read_fsa_meta().get("apk") == apk_base)})
             return
         if path == "/api/prefs":
             # 上次填写的界面配置（WiFi 名称/密码），供前端自动回填
@@ -2357,15 +2454,31 @@ class Handler(BaseHTTPRequestHandler):
             self._send(200, {"ok": True})
             threading.Timer(1.0, lambda: os._exit(0)).start()
             return
+        if self.path.split("?")[0] == "/api/pick_apk":
+            # 本机原生文件框：返回磁盘绝对路径，APK 不用上传/复制
+            if not PICK_LOCK.acquire(blocking=False):
+                self._send(409, {"error": "已经有一个选择窗口打开了"})
+                return
+            try:
+                known = load_ext_apks()
+                init_dir = os.path.dirname(known[0]) if known else PROJECT_DIR
+                picked = pick_apk_dialog(init_dir)
+            finally:
+                PICK_LOCK.release()
+            if not picked:
+                self._send(200, {"apk": "", "cancel": True})
+                return
+            save_ext_apk(picked)
+            self._send(200, {"apk": picked})
+            return
         if self.path.split("?")[0] == "/api/upload_apk":
             length = int(self.headers.get("Content-Length", 0) or 0)
             if length <= 0:
                 self._send(400, {"error": "empty body"})
                 return
-            if length > 1_600_000_000:   # 约 1.5GB 上限
-                self._send(400, {"error": "file too large"})
+            if length > 4_000_000_000:   # 4GB 上限（流式写盘，不再整包读进内存）
+                self._send(400, {"error": "file too large (>4GB)"})
                 return
-            data = self.rfile.read(length)
             name = urllib.parse.unquote(self.path.split("name=", 1)[1]) if "name=" in self.path else "upload.apk"
             fname = os.path.basename(name).strip()
             if not fname or fname.lower() == "blob":
@@ -2374,9 +2487,20 @@ class Handler(BaseHTTPRequestHandler):
                 fname += ".apk"
             dest = os.path.join(PROJECT_DIR, fname)
             try:
+                remain = length
                 with open(dest, "wb") as f:
-                    f.write(data)
+                    while remain > 0:
+                        chunk = self.rfile.read(min(8 * 1024 * 1024, remain))
+                        if not chunk:
+                            raise IOError("连接中断，上传不完整")
+                        f.write(chunk)
+                        remain -= len(chunk)
             except Exception as e:
+                try:
+                    if os.path.exists(dest):
+                        os.remove(dest)
+                except Exception:
+                    pass
                 self._send(400, {"error": str(e)})
                 return
             self._send(200, {"apk": fname})

@@ -1,10 +1,10 @@
 {
-  "version": "0.1.27",
-  "notes": "修复无控制台模式下 adb 子进程反复闪黑框（统一 CREATE_NO_WINDOW）",
+  "version": "0.1.28",
+  "notes": "APK 支持直接选本机任意位置（Windows 原生文件框，不复制、不上传，几 GB 也能秒选，选择记录跨重启保留）；拖拽上传改为流式写盘，上限从 1.5G 提到 4G，失败会清理残缺文件",
   "files": {
-    "launcher.exe": "bb8b5ac34929a55535790ee341eb04b6",
-    "web/server.py": "3bf6bf754f408d35c27029744e098003",
-    "web/index.html": "c14a1647e5062415d58863cbfff23249",
+    "launcher.exe": "1b2d65f32fa6c7eff9030252e5db5843",
+    "web/server.py": "52ce8c24e3bfca194ab0fea5a3db3385",
+    "web/index.html": "658e70f83cc94ba97ab2de0a54e6cf19",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
