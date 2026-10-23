@@ -731,7 +731,9 @@
     <button class="btn amber" id="rebootBtn">重启已选设备</button>
     <button class="btn red" id="poweroffBtn">主动关机</button>
     <div class="hint">
-      <b>普通安装</b>：只执行 <code>adb install -r</code>，<b>不卸载旧包、不推送 fsa、不 root、不连 WiFi、不设默认桌面、不重启</b>。
+      <b>并行安装</b>：卸载旧包 → 安装 APK → 推送 fsa → root → 连 WiFi/蓝牙 → <code>pm grant</code>/<code>appops</code> 授权 → <b>设置 Device Owner</b> → 启动 → 设默认桌面 → 重启。
+      <br><b>Device Owner</b> 是 App 自动差分更新的前提（否则只能整包手动装，且更新后权限会被系统重置）；卸载重装会丢这个身份，所以每次并行安装都会重设一次。
+      <br><b>普通安装</b>：只执行 <code>adb install -r</code>，<b>不卸载旧包、不推送 fsa、不 root、不连 WiFi、不设默认桌面、不重启</b>。
       勾选「授予权限」时，安装成功后再静默授权：<code>pm grant</code> 运行时权限（含存储读写/媒体读取）+ <code>appops</code> 所有文件访问/悬浮窗/通知 + 电池白名单（不设 home）；取消勾选则只装软件。
       需要完整配置请用左边的「并行安装」。
     </div>

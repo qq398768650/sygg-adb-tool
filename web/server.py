@@ -456,6 +456,51 @@ def parse_apk_permissions(apk_path):
         return None
 
 
+def parse_apk_device_admin(apk_path):
+    """从 APK 的 AndroidManifest.xml 里找 device-admin 的接收器完整类名。
+
+    判据：<receiver android:permission="android.permission.BIND_DEVICE_ADMIN">。
+    这是 dpm set-device-owner 需要的 ComponentName 后半段（不同景区包名不同，
+    所以必须从 APK 里读，不能写死 com.hsy.sygg.ApkDeviceAdmin）。
+    解析失败返回 None（调用方退回「包名.ApkDeviceAdmin」）。
+    """
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            data = z.read("AndroidManifest.xml")
+    except Exception:
+        return None
+    if len(data) < 8:
+        return None
+    try:
+        strings = None
+        pkg = None
+        recv = None
+        pos = 8
+        while pos + 8 <= len(data):
+            t, _hs, sz = struct.unpack_from("<HHI", data, pos)
+            if sz <= 0:
+                break
+            if t == 0x0001:
+                strings = _axml_strings(data, pos)
+            elif t == 0x0102 and strings:
+                name, attrs = _axml_element(data, pos, strings)
+                if name == "manifest":
+                    pkg = attrs.get("package") or pkg
+                elif name == "receiver" and not recv:
+                    if attrs.get("permission") == "android.permission.BIND_DEVICE_ADMIN":
+                        recv = attrs.get("name") or None
+            pos += sz
+        if not recv:
+            return None
+        if recv.startswith("."):
+            recv = (pkg or "") + recv
+        elif "." not in recv and pkg:
+            recv = pkg + "." + recv
+        return recv or None
+    except Exception:
+        return None
+
+
 # ---------- adb 定位 ----------
 def find_adb():
     p = shutil.which("adb")
@@ -720,6 +765,70 @@ def grant_permissions(serial, pkg, declared=None):
     return (not failed), granted, unknown, failed
 
 
+# Device Owner 的 admin 组件名兜底（正常应由 parse_apk_device_admin 从 APK 里读）
+DEVICE_ADMIN_FALLBACK = "ApkDeviceAdmin"
+
+
+def device_owner_status(serial):
+    """返回当前 Device Owner 的组件串（形如 com.hsy.sygg/com.hsy.sygg.ApkDeviceAdmin）。
+
+    无 owner 返回空串。
+    注：Android 11 的 dpm **没有 list-owners** 子命令（那是 API 34+ 才加的，
+    实测 RK3566/Android 11 会报 unknown command），所以以 dumpsys device_policy 为准。
+    其输出形如（注意 admin= 在下一行）：
+        Device Owner: 
+          admin=ComponentInfo{com.hsy.sygg/com.hsy.sygg.ApkDeviceAdmin}
+    """
+    rc, out = adb_shell(serial, ["shell", "dumpsys", "device_policy"], timeout=30)
+    text = out or ""
+    m = re.search(r"Device Owner:\s*admin=ComponentInfo\{([^}]+)\}", text)
+    if m:
+        return m.group(1).strip()
+    # 新版 Android（API 34+）才认 dpm list-owners，兜底再试一次
+    rc2, out2 = adb_shell(serial, ["shell", "dpm", "list-owners"], timeout=30)
+    m2 = re.search(r"admin=ComponentInfo\{([^}]+)\}", out2 or "")
+    return m2.group(1).strip() if m2 else ""
+
+
+def set_device_owner(serial, pkg, admin_component=None):
+    """把本应用设为 Device Owner —— 这是「APK 差分更新 + 静默安装」能自动跑的前提。
+
+    首次装机（或卸载重装后，Device Owner 会随卸载一起丢失）必须重跑一次。
+    调用 dpm set-device-owner <pkg>/<receiver>；已是本应用则直接跳过。
+    返回 True=已是或设置成功，False=失败。
+    """
+    comp = admin_component or f"{pkg}.{DEVICE_ADMIN_FALLBACK}"
+    want = f"{pkg}/{comp}"
+    cur = device_owner_status(serial)
+    if cur:
+        if cur.replace(" ", "") == want.replace(" ", ""):
+            log(serial, f"       Device Owner 已是 {cur}，跳过设置")
+            return True
+        log(serial, f"       [FAIL] 设备已被其它应用设为 Device Owner：{cur}")
+        log(serial, "       [HINT] 需先在其上取消（dpm remove-active-admin 或恢复出厂），不能再设第二个")
+        return False
+    rc, out = adb_shell(serial, ["shell", "dpm", "set-device-owner", want], timeout=60)
+    txt = (out or "").strip()
+    low = txt.lower()
+    if "success" in low:
+        log(serial, f"       [OK] Device Owner 已设：{want}")
+        return True
+    # 常见失败原因翻译成人话，现场不用再去查英文报错
+    hints = []
+    if "already several users" in low or "multiple users" in low:
+        hints.append("设备存在多个用户，需先在「设置→用户」删除多余用户")
+    if "already some accounts" in low or "accounts on the device" in low:
+        hints.append("设备已登录账号（Google/厂商账号），需先移除所有账号")
+    if "not allowed" in low and not hints:
+        hints.append("系统拒绝：设备可能已有账户/多用户，或该固件不允许设置 Device Owner")
+    if "unknown admin" in low or "does not exist" in low or "unable to find" in low:
+        hints.append(f"APK 内找不到 device-admin 组件 {comp}（检查 ApkDeviceAdmin 是否被打进包）")
+    log(serial, f"       [FAIL] Device Owner 设置失败：{txt[:400]}")
+    for h in hints:
+        log(serial, f"       [HINT] {h}")
+    return False
+
+
 FSA_IN_APK = "assets/aikit/fsa/"
 # 设备端只接受 .txt：混入其他格式会导致 App 读取异常，导入/解包/推送三处都要过滤
 FSA_EXT = ".txt"
@@ -925,8 +1034,16 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
                 log(serial, f"       Old package uninstalled.  {base}")
                 step(serial, "uninstall_old", True)
             else:
-                log(serial, f"       Uninstall failed: {(out2 or '')[:300]}")
-                step(serial, "uninstall_old", False)
+                _o2 = (out2 or "")
+                if "DEVICE_POLICY_MANAGER" in _o2.upper() or "device policy manager" in _o2.lower():
+                    # 旧包是 Device Owner 时系统会拒绝卸载；覆盖安装（-r）会保留该身份，
+                    # 后面的「设置 Device Owner」步骤会检测到已是本应用并跳过 —— 属于正常路径。
+                    log(serial, "       Old package is Device Owner - system refuses uninstall, "
+                                "falling back to overwrite install (owner identity is kept).")
+                    step(serial, "uninstall_old", True)
+                else:
+                    log(serial, f"       Uninstall failed: {_o2[:300]}")
+                    step(serial, "uninstall_old", False)
         else:
             log(serial, "       No old package on device. Skip uninstall.")
             skip(serial, "uninstall_old")
@@ -1071,6 +1188,14 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         log(serial, "       Granting permissions...")
         result_ok, _g, _u, _f = grant_permissions(serial, pkg, declared_perms)
         step(serial, "grant", result_ok)
+
+        # ---- Device Owner（APK 自动更新 + 静默安装的前提）----
+        # 卸载重装会丢这个身份，所以每次装机都重设一次；
+        # 若不是 Device Owner，App 内 PermissionSelfHeal 会直接跳过（它靠 DPMS 补权限）。
+        log(serial, "       Setting Device Owner (required by silent APK update)...")
+        admin_comp = parse_apk_device_admin(apk) or f"{pkg}.{DEVICE_ADMIN_FALLBACK}"
+        log(serial, f"       Admin component: {admin_comp}")
+        step(serial, "device_owner", set_device_owner(serial, pkg, admin_comp))
 
         # ---- launch first (clears notLaunched; needed before set-home persists) ----
         log(serial, "       Launching app (first run, may take a while)...")
