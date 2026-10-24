@@ -1041,34 +1041,54 @@ def extract_fsa_from_apk(apk_path):
         return None
 
 
-def push_fsa_dir(serial, fsa_src, log, step):
-    """先确认并清空设备上的 fsa 目录（防污染/残留），再注入，最后校验文件数。
-    设备只认 .txt：源目录混入其他格式时先过滤到临时目录（目录名保持 fsa）。"""
+def push_fsa_dir(serial, fsa_src, log, step, pkg=None):
+    """先拍平、清空设备上的 fsa 目录（防污染/残留），再注入，最后校验文件数。
+    - 设备端引擎只扫 fsa/ 这一层：源目录的子目录一律拍平，否则推上去"文件数对但一个都读不到"；
+    - 只认 .txt（.meta 等其它格式忽略）；
+    - 清空前先 force-stop 目标应用：删掉正在使用的 slot 会让 ASR 报 15114 并崩掉应用。"""
     dev_targets = ["/sdcard/aikit/esr/fsa", "/sdcard/aikit/fsa"]
     tmp_root = None
     try:
-        bad = fsa_bad_files(fsa_src)
-        if bad:
-            log(serial, f"       [fsa] 源目录含 {len(bad)} 个非 txt 文件，已过滤：{', '.join(bad[:5])}")
-            tmp_root = tempfile.mkdtemp(prefix="fsa_txt_")
-            filtered = os.path.join(tmp_root, "fsa")
-            txt_n = 0
-            for root, _dirs, fns in os.walk(fsa_src):
-                for fn in fns:
-                    if not is_fsa_file(fn):
-                        continue
-                    src_p = os.path.join(root, fn)
-                    rel = os.path.relpath(src_p, fsa_src)
-                    dst_p = os.path.join(filtered, rel)
-                    os.makedirs(os.path.dirname(dst_p), exist_ok=True)
-                    shutil.copy2(src_p, dst_p)
-                    txt_n += 1
-            if not txt_n:
-                log(serial, "       [fsa] 源目录里没有 .txt 文件，跳过注入")
-                step(serial, "fsapush", False)
-                return False
-            fsa_src = filtered
-        # ---- 1) 检查设备现有 fsa 目录是否被污染/残留 ----
+        # ---- 0) 拍平成一层 ----
+        tmp_root = tempfile.mkdtemp(prefix="fsa_flat_")
+        flat = os.path.join(tmp_root, "fsa")
+        os.makedirs(flat, exist_ok=True)
+        txt_n = 0
+        subs, skipped, conflict = [], [], []
+        for root, _dirs, fns in os.walk(fsa_src):
+            rel_root = os.path.relpath(root, fsa_src)
+            tag = "" if rel_root == "." else rel_root.replace("\\", "/")
+            if tag:
+                subs.append(tag)
+            for fn in sorted(fns):
+                rel = (tag + "/" + fn) if tag else fn
+                if not is_fsa_file(fn):
+                    skipped.append(rel)
+                    continue
+                dst_p = os.path.join(flat, fn)
+                if os.path.exists(dst_p):
+                    conflict.append(rel)
+                    continue
+                shutil.copy2(os.path.join(root, fn), dst_p)
+                txt_n += 1
+        if subs:
+            log(serial, f"       [fsa] 源目录含 {len(subs)} 个子目录（{', '.join(subs[:4])}），"
+                        f"设备端引擎只扫 fsa/ 一层 —— 已拍平")
+        if conflict:
+            log(serial, f"       [fsa] 拍平后同名冲突：{', '.join(conflict[:5])} —— APK 内仍是"
+                        f"按语言分目录的旧结构，无法判断该留哪份，请用新流程重新打包")
+            step(serial, "fsapush", False)
+            return False
+        if skipped:
+            log(serial, f"       [fsa] 已忽略 {len(skipped)} 个非 .txt 文件：{', '.join(skipped[:5])}")
+        if not txt_n:
+            log(serial, "       [fsa] 源目录里没有 .txt 文件，跳过注入")
+            step(serial, "fsapush", False)
+            return False
+        fsa_src = flat
+        # ---- 1) 清空设备目录前先停应用：删掉正在使用的 slot 会让引擎报 15114 崩应用 ----
+        if pkg:
+            adb_shell(serial, ["shell", "am", "force-stop", pkg], timeout=30)
         for d in dev_targets:
             rc, out = adb_shell(serial, ["shell", "ls", "-A", d], timeout=30)
             n = 0
@@ -1084,19 +1104,29 @@ def push_fsa_dir(serial, fsa_src, log, step):
             log(serial, f"       fsa push failed: {(out or '')[:300]}")
             step(serial, "fsapush", False)
             return False
-        # ---- 3) 校验：设备上的文件数必须与源一致 ----
-        local_n = 0
-        for _root, _dirs, fns in os.walk(fsa_src):
-            local_n += len(fns)
+        # ---- 3) 校验：文件数一致，且同前缀（cn_fsa_/en_fsa_）一组不超过 16 个解码网络 ----
+        local_n = txt_n
         rc, out = adb_shell(serial, ["shell", "find", "/sdcard/aikit/esr/fsa", "-type", "f"], timeout=60)
-        dev_n = -1
-        if rc == 0:
-            dev_n = len([x for x in (out or "").splitlines() if x.strip()])
+        dev_files = [x.strip() for x in (out or "").splitlines() if x.strip()] if rc == 0 else []
+        dev_n = len(dev_files) if rc == 0 else -1
         if dev_n >= 0 and dev_n != local_n:
             log(serial, f"       [fsa] 校验不一致：设备 {dev_n} 个文件 / 源 {local_n} 个，可能未清干净")
             step(serial, "fsapush", False)
             return False
-        log(serial, f"       fsa pushed to /sdcard/aikit/esr/fsa.  {local_n} files (verified)")
+        groups = {}
+        for full in dev_files:
+            base = os.path.basename(full)
+            key = (base.split("_fsa_")[0] + "_fsa") if "_fsa_" in base else "(other)"
+            groups[key] = groups.get(key, 0) + 1
+        over = {k: v for k, v in groups.items() if v > 16}
+        if over:
+            log(serial, f"       [fsa] 单组超过 16 个解码网络：{over} —— 引擎会启动失败 10015，"
+                        f"请精简该语言词表")
+            step(serial, "fsapush", False)
+            return False
+        _g = ", ".join("%s=%d" % kv for kv in sorted(groups.items()))
+        log(serial, f"       fsa pushed to /sdcard/aikit/esr/fsa.  {local_n} files (verified"
+                    f"{', ' + _g if _g else ''})")
         step(serial, "fsapush", True)
         return True
     except Exception as e:
@@ -1206,7 +1236,7 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
                 fsa_from = "本地 fsa（本次为该 APK 手动上传）"
         if fsa_src:
             log(serial, f"       fsa 来源：{fsa_from}")
-            push_fsa_dir(serial, fsa_src, log, step)
+            push_fsa_dir(serial, fsa_src, log, step, pkg=pkg)
         else:
             log(serial, "       [WARN] APK 内未找到 assets/aikit/fsa。")
             _meta = read_fsa_meta()

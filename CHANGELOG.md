@@ -4,6 +4,10 @@
 
 版本号采用语义化 `v主.次.修订`（如 `v0.1.0`），每次发布默认修订号 +1。
 
+## v0.1.31 - 2026-10-24
+
+fsa 推送加固：子目录自动拍平（设备端引擎只扫 fsa/ 一层，避免文件数对但一个都读不到）；推前 force-stop 应用，防止删掉正在使用的 slot 报 15114 崩应用；按 cn_fsa_/en_fsa_ 分组校验，单组超过 16 个解码网络直接失败
+
 ## v0.1.30 - 2026-10-24
 
 新增「解除 Device Owner」一键操作：清 /data/system/device_owner_2.xml 与 device_policies.xml 里的 admin 节点，sync 后硬重启（echo b > /proc/sysrq-trigger），解决设过 DO 的包在 Android 11 卸载报 DELETE_FAILED_DEVICE_POLICY_MANAGER
