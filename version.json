@@ -1,8 +1,8 @@
 {
-  "version": "0.1.31",
-  "notes": "fsa 推送加固：子目录自动拍平（设备端引擎只扫 fsa/ 一层，避免文件数对但一个都读不到）；推前 force-stop 应用，防止删掉正在使用的 slot 报 15114 崩应用；按 cn_fsa_/en_fsa_ 分组校验，单组超过 16 个解码网络直接失败",
+  "version": "0.1.32",
+  "notes": "修复 Win7/8 双击启动报「计算机中丢失 api-ms-win-core-path-l1-1-0.dll」：改用 Python 3.8 + PyInstaller 5.13 打包（py3.9+ 的 python3xx.dll 静态依赖 Win10 才有的该 API set，py3.8 不依赖）；release.ps1 已固定优先用 3.8 解释器出包",
   "files": {
-    "launcher.exe": "b33cda66e9c957514500ee6843be9fa7",
+    "launcher.exe": "2c2cffc200558f49671c327b270f6cfc",
     "web/server.py": "6bbbc04784d392a5e405ad5f092e66ee",
     "web/index.html": "7a5cf711d63d0aaed437b2b9da9e4a34",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
