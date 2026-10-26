@@ -4,6 +4,10 @@
 
 版本号采用语义化 `v主.次.修订`（如 `v0.1.0`），每次发布默认修订号 +1。
 
+## v0.1.33 - 2026-10-26
+
+打包回退到 Python 3.12（性能优先）：程序与新版 platform-tools 的 adb 均要求 Windows 10 及以上，不再支持 Windows 7/8（Win7 下会报丢失 api-ms-win-core-path-l1-1-0.dll、adb 0xc0000005）
+
 ## v0.1.32 - 2026-10-26
 
 修复 Win7/8 双击启动报「计算机中丢失 api-ms-win-core-path-l1-1-0.dll」：改用 Python 3.8 + PyInstaller 5.13 打包（py3.9+ 的 python3xx.dll 静态依赖 Win10 才有的该 API set，py3.8 不依赖）；release.ps1 已固定优先用 3.8 解释器出包

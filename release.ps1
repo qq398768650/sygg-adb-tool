@@ -26,11 +26,11 @@ if ($needBuild) {
         '--workpath',"$root\build_tmp\build",
         '--specpath',"$root\build_tmp",
         '--noconfirm',"$root\web\server.py")
-    # ⚠️ 必须用 Python 3.8 + PyInstaller 5.x 打包，否则现场 Win7 电脑双击报
-    #    「计算机中丢失 api-ms-win-core-path-l1-1-0.dll」：
-    #    py3.9+ 的 python3xx.dll 静态依赖该 API set（Win10 才有），py3.8 不依赖。
-    $py38 = 'H:\GitWork2026\Tools\Python38\python.exe'
-    if (Test-Path $py38) { $pyExe = $py38 } else { $pyExe = 'python' }
+    # 打包解释器：用本机默认 python（当前 3.12）。注意最低支持 Windows 10：
+    # py3.9+ 的 python3xx.dll 静态依赖 api-ms-win-core-path-l1-1-0.dll（Win10 才有），
+    # Win7 上双击会报「丢失该 dll」；新版 platform-tools 的 adb.exe 同样要 Win10。
+    # 不要再为了 Win7 退回 Python 3.8 —— 运行性能会明显下降。
+    $pyExe = 'python'
     Write-Host "[release] 使用打包解释器: $pyExe" -ForegroundColor DarkGray
     $built = $false
     try { & $pyExe -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
