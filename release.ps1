@@ -26,17 +26,30 @@ if ($needBuild) {
         '--workpath',"$root\build_tmp\build",
         '--specpath',"$root\build_tmp",
         '--noconfirm',"$root\web\server.py")
-    # 打包解释器：用本机默认 python（当前 3.12）。注意最低支持 Windows 10：
+    # 打包解释器：必须是 Python 3.12（性能优先）。最低支持 Windows 10：
     # py3.9+ 的 python3xx.dll 静态依赖 api-ms-win-core-path-l1-1-0.dll（Win10 才有），
     # Win7 上双击会报「丢失该 dll」；新版 platform-tools 的 adb.exe 同样要 Win10。
     # 不要再为了 Win7 退回 Python 3.8 —— 运行性能会明显下降。
-    $pyExe = 'python'
-    Write-Host "[release] 使用打包解释器: $pyExe" -ForegroundColor DarkGray
+    # ⚠️ PATH 里的 `python` 可能指向 Python 3.8（本机 H:\GitWork2026\Tools\Python38），
+    #    直接用 python 会静默打出 6.4MB 的旧版 exe，所以这里显式锁定 3.12。
+    $pyExe = 'python'; $pyPre = @()
+    $is312 = $false
+    try { & py -3.12 -c "import sys" *> $null; if ($LASTEXITCODE -eq 0) { $pyExe = 'py'; $pyPre = @('-3.12'); $is312 = $true } } catch {}
+    if (-not $is312) {
+        $p312 = 'C:\Users\JS\AppData\Local\Programs\Python\Python312\python.exe'
+        if (Test-Path $p312) { $pyExe = $p312; $is312 = $true }
+    }
+    if (-not $is312) { Write-Host '[release] 警告：未找到 Python 3.12，回退默认 python（可能打出旧版 exe）' -ForegroundColor Yellow }
+    Write-Host "[release] 使用打包解释器: $pyExe $($pyPre -join ' ')" -ForegroundColor DarkGray
     $built = $false
-    try { & $pyExe -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
+    try { & $pyExe @pyPre -m PyInstaller @pyArgs | Out-Null; if ($LASTEXITCODE -eq 0) { $built = $true } } catch {}
     if (-not $built) { pyinstaller @pyArgs | Out-Null; if ($LASTEXITCODE -ne 0) { throw 'pyinstaller 打包失败' } }
 
-    Copy-Item "$root\build_tmp\dist\launcher.exe" "$root\launcher.exe" -Force
+    $newExe = "$root\build_tmp\dist\launcher.exe"
+    # 4.x 的 py3.12 包约 9MB；3.8 只有 ~6.4MB。体积不对说明用错解释器，宁可失败也不发出去。
+    $mb = [math]::Round((Get-Item $newExe).Length / 1MB, 2)
+    if ($mb -lt 8) { throw "launcher.exe 只有 ${mb}MB，疑似用旧版 Python 打包（应为约 9MB），已中止发布" }
+    Copy-Item $newExe "$root\launcher.exe" -Force
 } else {
     Write-Host '[release] web/server.py 未变，沿用现有 launcher.exe（跳过重打包）' -ForegroundColor DarkGray
 }
