@@ -1,9 +1,9 @@
 {
-  "version": "0.1.33",
-  "notes": "打包回退到 Python 3.12（性能优先）：程序与新版 platform-tools 的 adb 均要求 Windows 10 及以上，不再支持 Windows 7/8（Win7 下会报丢失 api-ms-win-core-path-l1-1-0.dll、adb 0xc0000005）",
+  "version": "0.1.34",
+  "notes": "投屏绿屏修复：scrcpy 默认改用 OpenGL 渲染并关闭音频（RK3566/Android 11 在 scrcpy 3.x 的 D3D 渲染路径下画面全绿，音频捕获也在刷错误）；OpenGL 不可用的老机器会自动回退到默认参数",
   "files": {
-    "launcher.exe": "b33cda66e9c957514500ee6843be9fa7",
-    "web/server.py": "6bbbc04784d392a5e405ad5f092e66ee",
+    "launcher.exe": "92b8368d97b5e57ff3cb2b336bea0e6f",
+    "web/server.py": "ec0e07d27feb3279b7d76587b7a4f049",
     "web/index.html": "7a5cf711d63d0aaed437b2b9da9e4a34",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",

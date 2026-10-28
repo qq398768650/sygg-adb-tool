@@ -550,19 +550,35 @@ SCRCPY = find_scrcpy()
 
 
 def launch_scrcpy(serial):
-    """为指定设备启动 scrcpy 投屏窗口（独立进程，不阻塞网页）。"""
+    """为指定设备启动 scrcpy 投屏窗口（独立进程，不阻塞网页）。
+
+    默认带 --render-driver=opengl --no-audio：
+    - 部分机型（实测 RK3566 / Android 11）在 scrcpy 3.x 的 D3D 渲染路径下画面**全绿**，
+      换 OpenGL 渲染即正常，所以优先用 opengl；
+    - 这类机型的音频捕获本身会失败并持续刷 "Buffering threshold exceeded"，顺手关掉。
+    OpenGL 不可用的老机器上 scrcpy 会立刻退出，此时自动回退到默认参数（D3D + 音频）再开一次。
+    """
     exe = SCRCPY or find_scrcpy()
     if not exe:
         return False, "未找到 scrcpy.exe（可放到项目根目录 scrcpy\\ 下，或安装到 C:\\scrcpy）"
     try:
         env = dict(os.environ)
         env["ADB"] = ADB          # 复用本工具的 adb，避免两套 adb server 抢 5037 端口
-        subprocess.Popen(
-            [exe, "-s", serial, "--window-title", "投屏 - " + serial],
-            cwd=os.path.dirname(exe) or None,
-            env=env,
-            creationflags=0x00000008,   # DETACHED_PROCESS：关掉网页也不影响投屏
-        )
+        argv = [exe, "-s", serial, "--window-title", "投屏 - " + serial]
+
+        def spawn(extra):
+            return subprocess.Popen(
+                argv + extra,
+                cwd=os.path.dirname(exe) or None,
+                env=env,
+                creationflags=0x00000008,   # DETACHED_PROCESS：关掉网页也不影响投屏
+            )
+
+        proc = spawn(["--render-driver=opengl", "--no-audio"])
+        time.sleep(1.5)                     # 给 scrcpy 一点时间：起不来会立刻退出
+        if proc.poll() is None:
+            return True, ""
+        spawn([])                           # OpenGL 不可用 → 回退默认参数
         return True, ""
     except Exception as e:
         return False, str(e)

@@ -4,6 +4,10 @@
 
 版本号采用语义化 `v主.次.修订`（如 `v0.1.0`），每次发布默认修订号 +1。
 
+## v0.1.34 - 2026-10-28
+
+投屏绿屏修复：scrcpy 默认改用 OpenGL 渲染并关闭音频（RK3566/Android 11 在 scrcpy 3.x 的 D3D 渲染路径下画面全绿，音频捕获也在刷错误）；OpenGL 不可用的老机器会自动回退到默认参数
+
 ## v0.1.33 - 2026-10-26
 
 打包回退到 Python 3.12（性能优先）：程序与新版 platform-tools 的 adb 均要求 Windows 10 及以上，不再支持 Windows 7/8（Win7 下会报丢失 api-ms-win-core-path-l1-1-0.dll、adb 0xc0000005）
