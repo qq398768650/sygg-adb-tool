@@ -22,6 +22,7 @@ import hashlib
 import subprocess
 import tempfile
 import threading
+import concurrent.futures
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -1796,6 +1797,334 @@ def resolve_apk(data):
     return apk, ""
 
 
+# ---------- 从 URL 下载 APK ----------
+# 现场电脑没 Unity、也不想手动从 CDN 拖几百 MB 的包时，粘个链接直接下到项目目录。
+# 只允许同时 1 个任务；进度写内存，前端每秒轮询 /api/download_status。
+DL_LOCK = threading.Lock()
+DL_TASK = {}          # 当前（或最近一次）下载任务的状态
+
+
+class _DLCanceled(Exception):
+    pass
+
+
+def _dl_get(key, default=None):
+    with DL_LOCK:
+        return DL_TASK.get(key, default)
+
+
+def _dl_set(**kw):
+    with DL_LOCK:
+        if DL_TASK:
+            DL_TASK.update(kw)
+
+
+def _sha256_file(path, chunk=8 * 1024 * 1024):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        while True:
+            b = f.read(chunk)
+            if not b:
+                break
+            h.update(b)
+    return h.hexdigest()
+
+
+def _clean_name(n):
+    """去掉路径与 Windows 非法字符，只留裸文件名。"""
+    n = os.path.basename(str(n or "").replace("\\", "/")).strip()
+    n = re.sub(r'[<>:"|?*\x00-\x1f]', "_", n)
+    n = n.strip(" .")
+    return "" if not n else n
+
+
+def _force_apk(n):
+    """强制 .apk 结尾（latest.json → latest.apk），避免出现后缀不符的文件。"""
+    if not n:
+        return "download.apk"
+    if not n.lower().endswith(".apk"):
+        n = os.path.splitext(n)[0] + ".apk"
+    return n
+
+
+def _unique_name(fname):
+    """项目目录里重名就加 _1/_2，不静默覆盖已有包（.part 也算占用）。"""
+    dest = os.path.join(PROJECT_DIR, fname)
+    if not os.path.exists(dest) and not os.path.exists(dest + ".part"):
+        return fname
+    stem, ext = os.path.splitext(fname)
+    i = 1
+    while True:
+        cand = "%s_%d%s" % (stem, i, ext)
+        p = os.path.join(PROJECT_DIR, cand)
+        if not os.path.exists(p) and not os.path.exists(p + ".part"):
+            return cand
+        i += 1
+
+
+def _filename_from_headers(headers):
+    """从 Content-Disposition 取文件名（兼容 RFC 5987 的 filename*=UTF-8''xxx）。"""
+    cd = (headers or {}).get("Content-Disposition") or ""
+    if not cd:
+        return ""
+    m = re.search(r"filename\*\s*=\s*([\w-]*)'[^']*'([^;]+)", cd, re.I)
+    if m:
+        try:
+            return urllib.parse.unquote(m.group(2).strip().strip('"'), encoding=m.group(1) or "utf-8")
+        except Exception:
+            return urllib.parse.unquote(m.group(2).strip().strip('"'))
+    m = re.search(r'filename\s*=\s*"?([^";]+)"?', cd, re.I)
+    return m.group(1).strip() if m else ""
+
+
+def _head_headers(url):
+    """轻量 HEAD 探测（很多 CDN 不支持 HEAD，失败就改用 Range GET 探一次头）。"""
+    try:
+        req = urllib.request.Request(url, method="HEAD",
+                                     headers={"User-Agent": "sygg-adb-tool"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return dict(r.headers)
+    except Exception:
+        pass
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "sygg-adb-tool",
+                                                   "Range": "bytes=0-0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            return dict(r.headers)
+    except Exception:
+        return {}
+
+
+CDN_DEFAULT = "http://cdn.vr.hoseavr.com/arasset/"
+
+# 发布后台（景区注册表 / 资产列表），鉴权走请求头 X-AR-API-Key，密钥由使用者在页面里填。
+AR_API_BASE = "http://www.hoseavr.com:8081/book/main/"
+
+
+class ArAuthError(Exception):
+    """密钥缺失或错误（后端 401）。"""
+
+
+def _ar_get(endpoint, api_key, params=None, timeout=25):
+    """调发布后台接口；401 / 业务码 401 统一抛 ArAuthError。"""
+    url = AR_API_BASE + endpoint
+    if params:
+        url += "?" + urllib.parse.urlencode(params)
+    req = urllib.request.Request(url, headers={
+        "X-AR-API-Key": api_key,
+        "User-Agent": "sygg-adb-tool",
+    })
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            raw = r.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        if e.code == 401:
+            raise ArAuthError("密钥无效或已过期")
+        raise
+    try:
+        j = json.loads(raw)
+    except Exception:
+        raise RuntimeError("接口返回的不是 JSON")
+    if not j.get("success"):
+        msg = j.get("message") or "接口返回失败"
+        if j.get("code") == 401 or "密钥" in msg or "秘钥" in msg:
+            raise ArAuthError(msg)
+        raise RuntimeError(msg)
+    return j.get("data") or {}
+
+
+def list_ar_packages(api_key):
+    """景区列表 + 各景区 APK 资产，拼成可直接下载的 CDN 地址。"""
+    api_key = (api_key or "").strip()
+    if not api_key:
+        raise ArAuthError("需要访问密钥")
+    data = _ar_get("listArProjects.do", api_key)
+    projects = data.get("projects") or []
+    out = []
+    for p in projects:
+        proj = (p.get("project") or "").strip()
+        if not proj:
+            continue
+        try:
+            ad = _ar_get("listArAssets.do", api_key,
+                         {"project": proj, "page": 1, "pageSize": 500})
+        except ArAuthError:
+            raise
+        except Exception:
+            continue
+        cur = p.get("currentVersionCode") or 0
+        for f in (ad.get("files") or []):
+            if (f.get("kind") or "") != "apk":
+                continue
+            rel = (f.get("path") or "").strip().lstrip("/")
+            if not rel:
+                continue
+            vc = f.get("versionCode") or 0
+            out.append({
+                "name": p.get("displayName") or proj,
+                "project": proj,
+                "key": p.get("packageName") or "",
+                "versionCode": vc,
+                "size": int(f.get("size") or 0),
+                "sha256": f.get("sha256") or "",
+                "url": CDN_DEFAULT + rel,
+                "publishedAt": f.get("mtime") or "",
+                "latest": bool(cur and vc == cur),
+            })
+    out.sort(key=lambda r: (r["name"], -(r["versionCode"] or 0)))
+    return {"packages": out}
+
+
+def _resolve_download_name(url, name, resume):
+    """决定落盘文件名：自定义名 → Content-Disposition → URL 最后一段 → download.apk。"""
+    cand = _clean_name(name)
+    if not cand:
+        cand = _clean_name(_filename_from_headers(_head_headers(url)))
+    if not cand:
+        cand = _clean_name(urllib.parse.unquote(urllib.parse.urlparse(url).path))
+    cand = _force_apk(cand)
+    if resume:
+        # 同名 .part 还在 → 沿用原名，才能接着续传而不是另起一份
+        if os.path.exists(os.path.join(PROJECT_DIR, cand + ".part")):
+            return cand
+    return _unique_name(cand)
+
+
+def _download_once(url, part):
+    """把 url 拉到 part（有 .part 就走 Range 续传），返回后由调用方校验。"""
+    have = os.path.getsize(part) if os.path.exists(part) else 0
+    req = urllib.request.Request(url, headers={"User-Agent": "sygg-adb-tool"})
+    if have > 0:
+        req.add_header("Range", "bytes=%d-" % have)
+    with urllib.request.urlopen(req, timeout=10) as r:
+        code = getattr(r, "status", None) or r.getcode()
+        clen = int(r.headers.get("Content-Length") or 0)
+        if have > 0 and code == 206:
+            total = have + clen          # 服务端认了 Range，接着写
+            mode = "ab"
+        else:
+            have = 0                     # 200 / 其他 → 从头覆盖
+            total = clen or -1
+            mode = "wb"
+        _dl_set(total=total, received=have)
+        speed = 0.0
+        last_t, last_b = time.time(), have
+        with open(part, mode) as f:
+            while True:
+                if _dl_get("cancel"):
+                    raise _DLCanceled()
+                chunk = r.read(256 * 1024)
+                if not chunk:
+                    break
+                f.write(chunk)
+                have += len(chunk)
+                now = time.time()
+                if now - last_t >= 0.3:
+                    inst = (have - last_b) / (now - last_t) / 1048576.0
+                    speed = inst if speed <= 0 else speed * 0.7 + inst * 0.3
+                    eta = int((total - have) / (speed * 1048576)) if (total > 0 and speed > 0.01) else -1
+                    _dl_set(received=have, speed_mbps=round(speed, 2), eta_sec=eta)
+                    last_t, last_b = now, have
+        _dl_set(received=have)
+    if total > 0 and have != total:
+        raise IOError("下载不完整：%d/%d 字节" % (have, total))
+
+
+def _download_worker(task_id, url, fname, sha_want, expected_size, resume,
+                     install_after, serials, pkg, act):
+    dest = os.path.join(PROJECT_DIR, fname)
+    part = dest + ".part"
+    try:
+        if not resume and os.path.exists(part):
+            os.remove(part)
+    except OSError:
+        pass
+
+    err, canceled = "", False
+    for attempt in range(6):
+        try:
+            _download_once(url, part)
+            err = ""
+            _dl_set(error="")
+            break
+        except _DLCanceled:
+            canceled = True
+            break
+        except Exception as e:
+            err = "%s: %s" % (type(e).__name__, e)
+            if attempt < 2:
+                wait = 3 * (attempt + 1)
+                _dl_set(error="第 %d 次失败（%s），%d 秒后重试…" % (attempt + 1, err, wait))
+                time.sleep(wait)
+
+    if canceled:
+        try:
+            if os.path.exists(part):
+                os.remove(part)
+        except OSError:
+            pass
+        _dl_set(state="canceled", error="已取消", speed_mbps=0, eta_sec=-1)
+        return
+
+    if err:
+        # .part 保留，下次带 resume 可以接着下
+        _dl_set(state="failed", error=err, speed_mbps=0, eta_sec=-1)
+        return
+
+    size = os.path.getsize(part) if os.path.exists(part) else 0
+    sha_ok = None
+    if sha_want:
+        try:
+            sha_ok = _sha256_file(part).lower() == sha_want.lower()
+        except Exception as e:
+            _dl_set(state="failed", error="计算 SHA256 失败：%s" % e)
+            return
+        if not sha_ok:
+            try:
+                os.remove(part)
+            except OSError:
+                pass
+            _dl_set(state="failed", error="SHA256 校验失败，文件已删除", sha256_ok=False)
+            return
+
+    try:
+        os.replace(part, dest)
+    except Exception as e:
+        _dl_set(state="failed", error="重命名失败：%s" % e)
+        return
+
+    warn = ""
+    if expected_size:
+        try:
+            if int(expected_size) != size:
+                warn = "大小与预期不符：期望 %s，实际 %s（文件已保留）" % (expected_size, size)
+        except Exception:
+            pass
+    _dl_set(state="done", path=fname, received=size, total=size, speed_mbps=0,
+            eta_sec=0, sha256_ok=sha_ok, size_warn=warn, error="")
+
+    if install_after:
+        try:
+            used = start_install(serials, dest, pkg, act)
+            _dl_set(installed_serials=used)
+        except Exception as e:
+            _dl_set(error="下载完成，但启动安装失败：%s" % e)
+
+
+def start_install(serials, apk, pkg, act, ssid="", pw=""):
+    """起安装线程（与 /api/install 完全同一套 STATUS 初始化 + install_one）。"""
+    if not serials:
+        serials = list_devices()
+    for s in serials:
+        with LOCK:
+            STATUS[s] = {"serial": s, "state": "running", "steps": [],
+                         "logs": [], "result": "RUNNING",
+                         "ok": 0, "fail": 0, "skip": 0, "dev_info": {}}
+        threading.Thread(target=install_one, args=(s, apk, pkg, act, ssid, pw),
+                         daemon=True).start()
+    return serials
+
+
 EXT_APK_FILE = os.path.join(BASE_DIR, ".apk_external.json")
 EXT_APK_LOCK = threading.Lock()      # 保护「本机选过的外部 APK」列表的读-改-写
 PICK_LOCK = threading.Lock()         # 同一时间只允许弹一个原生文件选择框
@@ -2480,6 +2809,17 @@ class Handler(BaseHTTPRequestHandler):
             lv = read_local_version()
             self._send(200, {"version": lv.get("version", ""), "has_file": bool(lv)})
             return
+        if path == "/api/cdn_packages":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            api_key = (qs.get("api_key") or [""])[0].strip()
+            try:
+                self._send(200, list_ar_packages(api_key))
+            except ArAuthError as e:
+                self._send(200, {"packages": [], "need_key": True,
+                                 "error": str(e) or "需要访问密钥"})
+            except Exception as e:
+                self._send(200, {"packages": [], "error": "查询失败：%s" % e})
+            return
         if path == "/api/check_update":
             local = read_local_version().get("version", "")
             # cached=1：用启动时静默检查的结果，秒回，避免页面一开就等十几秒
@@ -2521,6 +2861,17 @@ class Handler(BaseHTTPRequestHandler):
             apks = sorted(apks, key=str.lower)
             # external：本机选过的外部 APK 绝对路径（不在项目目录里，也不复制过来）
             self._send(200, {"apks": apks, "external": load_ext_apks()})
+            return
+        if path == "/api/download_status":
+            qs = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+            tid = (qs.get("task_id") or [""])[0].strip()
+            with DL_LOCK:
+                task = dict(DL_TASK)
+            if not task or (tid and task.get("task_id") != tid):
+                self._send(404, {"error": "下载任务不存在（服务重启过？）"})
+                return
+            task.pop("cancel", None)
+            self._send(200, task)
             return
         if path == "/api/apk_info":
             # 解析指定 APK 的包名与启动 Activity（项目目录内的文件名，或任意本地绝对路径）
@@ -3008,6 +3359,50 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=_run_clear, daemon=True).start()
             self._send(200, {"ok": True, "started": len(serials), "serials": serials})
             return
+        if self.path.split("?")[0] == "/api/download_apk":
+            data = self._read_body()
+            url = (data.get("url") or "").strip()
+            if not url.lower().startswith(("http://", "https://")):
+                self._send(400, {"error": "请填写 http:// 或 https:// 开头的下载地址"})
+                return
+            with DL_LOCK:
+                busy = bool(DL_TASK) and DL_TASK.get("state") == "running"
+            if busy:
+                self._send(409, {"error": "已有下载任务在进行，先等它完成或取消"})
+                return
+            resume = bool(data.get("resume", True))
+            try:
+                fname = _resolve_download_name(url, (data.get("name") or "").strip(), resume)
+            except Exception as e:
+                self._send(400, {"error": "无法解析下载地址：%s" % e})
+                return
+            task_id = hashlib.md5(("%s|%s|%s" % (url, time.time(), os.getpid())).encode("utf-8")).hexdigest()[:12]
+            with DL_LOCK:
+                DL_TASK.clear()
+                DL_TASK.update({
+                    "task_id": task_id, "state": "running", "received": 0, "total": -1,
+                    "speed_mbps": 0, "eta_sec": -1, "path": fname, "url": url,
+                    "error": "", "sha256_ok": None, "size_warn": "",
+                    "started_at": time.time(), "cancel": False,
+                })
+            threading.Thread(target=_download_worker, daemon=True, args=(
+                task_id, url, fname, (data.get("sha256") or "").strip(),
+                data.get("expected_size"), resume,
+                bool(data.get("install_after")), data.get("serials") or [],
+                (data.get("pkg") or DEFAULTS["PKG"]).strip(),
+                (data.get("act") or DEFAULTS["ACT"]).strip())).start()
+            self._send(200, {"task_id": task_id, "state": "running", "path": fname})
+            return
+        if self.path.split("?")[0] == "/api/download_cancel":
+            data = self._read_body()
+            tid = (data.get("task_id") or "").strip()
+            with DL_LOCK:
+                if not DL_TASK or (tid and DL_TASK.get("task_id") != tid):
+                    self._send(404, {"error": "下载任务不存在"})
+                    return
+                DL_TASK["cancel"] = True
+            self._send(200, {"ok": True})
+            return
         if self.path.split("?")[0] == "/api/install":
             data = self._read_body()
             wifissid = (data.get("wifi_ssid") or "").strip()
@@ -3019,18 +3414,8 @@ class Handler(BaseHTTPRequestHandler):
             if err:
                 self._send(400, {"error": err})
                 return
-            if not serials:
-                serials = list_devices()
-            for s in serials:
-                with LOCK:
-                    STATUS[s] = {"serial": s, "state": "running", "steps": [],
-                                 "logs": [], "result": "RUNNING",
-                                 "ok": 0, "fail": 0, "skip": 0, "dev_info": {}}
-                t = threading.Thread(target=install_one,
-                                     args=(s, apk, pkg, act, wifissid, wifipass),
-                                     daemon=True)
-                t.start()
-            self._send(200, {"started": len(serials), "serials": serials})
+            used = start_install(serials, apk, pkg, act, wifissid, wifipass)
+            self._send(200, {"started": len(used), "serials": used})
             return
         if self.path.split("?")[0] == "/api/plain_install":
             data = self._read_body()

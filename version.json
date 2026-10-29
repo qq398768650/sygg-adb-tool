@@ -1,10 +1,10 @@
 {
-  "version": "0.1.35",
-  "notes": "修正 0.1.34：该版误用 PATH 里的 Python 3.8 打包（exe 只有 6.4MB），本版恢复 Python 3.12 打包；同时 release.ps1 锁定 3.12 并对 exe 体积做校验，防止再次静默降级",
+  "version": "1.0.0",
+  "notes": "正式版 v1.0.0：新增从链接下载安装包（填一次访问密钥即自动列出各景点已发布版本，支持断点续传、进度/速度/剩余时间、取消）；投屏改用 OpenGL 渲染修复绿屏",
   "files": {
-    "launcher.exe": "8d1509dca23e43f80d7ed2922776d57e",
-    "web/server.py": "ec0e07d27feb3279b7d76587b7a4f049",
-    "web/index.html": "7a5cf711d63d0aaed437b2b9da9e4a34",
+    "launcher.exe": "138eaacb638a2c65e9dc9c2185b60718",
+    "web/server.py": "fe7c93c1d5964610bf3a95c9ade01dd7",
+    "web/index.html": "1bca07c708a502c2521c2fcb23e52ea4",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

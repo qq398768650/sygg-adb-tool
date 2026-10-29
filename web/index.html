@@ -177,6 +177,27 @@
   .dropzone .sel{ color:#4ADE80; border-bottom:1px solid rgba(34,197,94,.5); padding-bottom:1px; }
   .dropzone b{ color:#E2E8F0; }
 
+  /* ---------- 从链接下载安装包 ---------- */
+  .dlbox{ border:1px solid var(--line); border-radius:10px; background:var(--card-2); margin-bottom:12px; }
+  .dlhead{ display:flex; align-items:center; gap:8px; width:100%; padding:10px 12px; background:transparent;
+           border:0; color:#D7E3F1; font-size:13px; font-weight:600; cursor:pointer; text-align:left; border-radius:10px; }
+  .dlhead:hover{ background:rgba(148,163,184,.07); }
+  .dlhead .caret{ margin-left:auto; color:#B7C7DA; font-size:12px; line-height:1; transition:transform .15s; }
+  .dlbox.open .dlhead .caret{ transform:rotate(90deg); }
+  .dlbox.open .dlhead{ border-bottom-left-radius:0; border-bottom-right-radius:0; }
+  .dlbody{ padding:10px 12px 12px; display:flex; flex-direction:column; gap:8px; border-top:1px solid var(--line); }
+  .dlbody .row{ margin:0; }
+  .dlbody input{ width:100%; }
+  .dlbar{ height:8px; border-radius:5px; background:#0F1826; border:1px solid var(--line); overflow:hidden; }
+  .dlbar i{ display:block; height:100%; width:0; background:var(--accent); transition:width .25s linear; }
+  .dltxt{ font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-top:6px; }
+  html[data-theme="light"] .dlbar{ background:#F8FAFC; }
+  .dlsel{ flex:1; min-width:0; padding:7px 9px; border-radius:8px; border:1px solid var(--line);
+          background:rgba(15,23,42,.55); color:var(--fg); font-size:12.5px; }
+  .dlsel:focus{ outline:none; border-color:var(--accent); }
+  .dlsep{ display:flex; align-items:center; gap:8px; color:var(--muted); font-size:11.5px; }
+  .dlsep::before, .dlsep::after{ content:''; flex:1; height:1px; background:var(--line); }
+
   /* ---------- 设备卡 ---------- */
   .devices{ display:grid; grid-template-columns:repeat(auto-fill,minmax(196px,1fr)); gap:9px; margin-bottom:12px; }
   .pendingtip{
@@ -592,6 +613,30 @@
   <div class="col-main">
   <div class="panel">
     <h2><span class="n">1</span>选择 APK</h2>
+    <div class="dlbox" id="dlBox">
+      <button class="dlhead" id="dlHead" type="button">
+        <span>↓ 从链接下载安装包</span><span class="caret">▸</span>
+      </button>
+      <div class="dlbody" id="dlBody" style="display:none">
+        <div class="row">
+          <input type="password" id="apiKey" autocomplete="off"
+                 placeholder="访问密钥（填一次即可，会记住）" style="flex:1">
+        </div>
+        <div class="row">
+          <select id="pkgSel" class="dlsel"><option>输入访问密钥后列出景点安装包</option></select>
+          <button class="btn sm" id="pkgDl" type="button">下载</button>
+        </div>
+        <div class="row">
+          <button class="btn ghost sm" id="dlCancel" type="button" style="display:none">取消</button>
+          <button class="btn ghost sm" id="dlRetry" type="button" style="display:none">重试（续传）</button>
+        </div>
+        <div id="dlProg" style="display:none">
+          <div class="dlbar"><i id="dlBar"></i></div>
+          <div class="dltxt" id="dlTxt"></div>
+        </div>
+        <div class="err" id="dlErr"></div>
+      </div>
+    </div>
     <div class="dropzone" id="dz">
       将 <b>.apk</b> 文件拖到此处（会复制进项目目录），或 <span class="sel">点击选择本机文件</span>
     </div>
@@ -1007,6 +1052,174 @@ function saveWifiPrefs(immediate) {
   if (prefsTimer) { clearTimeout(prefsTimer); prefsTimer = null; }
   if (immediate) send();
   else prefsTimer = setTimeout(send, 400);
+}
+
+// ---------- 从链接下载安装包 ----------
+let dlTaskId = null, dlTimer = null;
+
+function dlFmtSize(n) {
+  if (!(n > 0)) return '0 B';
+  const u = ['B', 'KB', 'MB', 'GB'];
+  let i = 0, v = n;
+  while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+  return v.toFixed(i >= 2 ? 1 : 0) + ' ' + u[i];
+}
+
+function dlToggle(open) {
+  const openNow = open === undefined ? $('dlBody').style.display === 'none' : open;
+  $('dlBody').style.display = openNow ? '' : 'none';
+  $('dlBox').classList.toggle('open', openNow);
+  if (openNow && !pkgList.length) pkgLoad();
+}
+
+function dlMsg(text, kind) {
+  const el = $('dlErr');
+  el.textContent = text || '';
+  el.style.color = kind === 'ok' ? '#4ade80'
+    : kind === 'err' ? 'var(--err)'
+    : kind === 'warn' ? 'var(--warn)' : 'var(--muted)';
+}
+
+async function dlStartWith(url, name, sha, resume) {
+  url = (url || '').trim();
+  if (!url) { dlMsg('先选一个版本或粘一个下载地址', 'err'); return; }
+  $('pkgDl').disabled = true;
+  $('dlRetry').style.display = 'none';
+  dlMsg('正在连接…');
+  try {
+    const r = await api('download_apk', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        url,
+        name: (name || '').trim(),
+        sha256: (sha || '').trim(),
+        resume: resume !== false,
+      }),
+    });
+    if (r.error) throw new Error(r.error);
+    dlTaskId = r.task_id;
+    $('dlProg').style.display = '';
+    $('dlBar').style.width = '0%';
+    $('dlCancel').style.display = '';
+    dlMsg('开始下载 → ' + (r.path || ''));
+    dlPoll();
+  } catch (e) {
+    $('pkgDl').disabled = false;
+    dlMsg(e.message, 'err');
+  }
+}
+
+// ---------- 景区安装包列表（发布后台，需要访问密钥） ----------
+let pkgList = [];
+
+async function pkgLoad() {
+  const sel = $('pkgSel');
+  const key = ($('apiKey').value || '').trim();
+  sel.innerHTML = '<option>正在查询…</option>';
+  try {
+    const q = key ? '?api_key=' + encodeURIComponent(key) : '';
+    const r = await api('cdn_packages' + q);
+    if (r.need_key) {
+      sel.innerHTML = '<option>填上访问密钥后自动列出安装包</option>';
+      dlMsg(r.error || '需要访问密钥', 'warn');
+      return;
+    }
+    const arr = (r.packages || []).filter(p => p && p.url);
+    pkgList = arr;
+    localStorage.setItem('arApiKey', key);
+    sel.innerHTML = '';
+    if (!arr.length) {
+      sel.innerHTML = '<option>后台还没有已发布的安装包</option>';
+      dlMsg('查询成功，但没有可下载的包', 'warn');
+      return;
+    }
+    arr.forEach((p, i) => {
+      const o = document.createElement('option');
+      o.value = String(i);
+      const bits = [p.name + ' · v' + p.versionCode];
+      if (p.size) bits.push(dlFmtSize(p.size));
+      if (p.latest) bits.push('最新');
+      o.textContent = bits.join(' · ');
+      sel.appendChild(o);
+    });
+    dlMsg('共 ' + arr.length + ' 个安装包', 'ok');
+  } catch (e) {
+    sel.innerHTML = '';
+    const o = document.createElement('option');
+    o.textContent = '查询失败：' + e.message;
+    sel.appendChild(o);
+  }
+}
+
+function pkgDownload() {
+  const p = pkgList[Number($('pkgSel').value)];
+  if (!p) { dlMsg('先选一个包', 'err'); return; }
+  dlStartWith(p.url, p.key + '_v' + p.versionCode + '.apk', p.sha256 || '', true);
+}
+
+function dlStopUi() {
+  $('pkgDl').disabled = false;
+  $('dlCancel').style.display = 'none';
+}
+
+function dlPoll() {
+  clearTimeout(dlTimer);
+  if (!dlTaskId) return;
+  api('download_status?task_id=' + encodeURIComponent(dlTaskId)).then(s => {
+    const recv = s.received || 0;
+    const total = typeof s.total === 'number' ? s.total : -1;
+    const pct = total > 0 ? Math.min(100, recv * 100 / total) : 0;
+    $('dlBar').style.width = pct.toFixed(1) + '%';
+    let txt = '已下载 ' + dlFmtSize(recv) + (total > 0 ? ' / ' + dlFmtSize(total) : ' / 未知');
+    if (total > 0) txt += ' · ' + pct.toFixed(1) + '%';
+    if (s.speed_mbps) txt += ' · ' + s.speed_mbps + ' MB/s';
+    if (s.eta_sec > 0) txt += ' · 剩 ' + Math.ceil(s.eta_sec) + ' 秒';
+    $('dlTxt').textContent = txt;
+
+    if (s.state === 'done') {
+      $('dlBar').style.width = '100%';
+      dlStopUi();
+      dlMsg('下载完成：' + s.path + (s.size_warn ? '（' + s.size_warn + '）' : ''),
+            s.size_warn ? 'warn' : 'ok');
+      const done = s.path;
+      dlTaskId = null;
+      // 刷新 APK 列表并自动选中刚下载的包（复用现有渲染/识别逻辑）
+      api('apks').then(d => {
+        state.apks = d.apks || [];
+        state.extApks = d.external || [];
+        renderApkOptions(done);
+        autoFillFromApk(false);
+        refreshFsaStatus();
+      }).catch(() => {});
+      return;
+    }
+    if (s.state === 'failed' || s.state === 'canceled') {
+      dlStopUi();
+      if (s.state === 'canceled') {
+        dlMsg('已取消');
+      } else {
+        dlMsg('下载失败：' + (s.error || '未知错误'), 'err');
+        $('dlRetry').style.display = '';
+      }
+      dlTaskId = null;
+      return;
+    }
+    dlMsg(s.error || '', s.error ? 'warn' : '');
+    dlTimer = setTimeout(dlPoll, 1000);
+  }).catch(() => {
+    dlTimer = setTimeout(dlPoll, 2000);
+  });
+}
+
+async function dlCancel() {
+  if (!dlTaskId) return;
+  try {
+    await api('download_cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ task_id: dlTaskId }),
+    });
+    dlMsg('正在取消…');
+  } catch (e) { dlMsg(e.message, 'err'); }
 }
 
 // APK 下拉：项目目录内的用文件名，外部选过的是绝对路径（标签显示「文件名 — 所在目录」）
@@ -2410,6 +2623,15 @@ loadVersion();
     }
   } catch (e) {}
 })();
+
+// 从链接下载安装包
+$('apiKey').value = localStorage.getItem('arApiKey') || '';
+$('apiKey').onchange = () => pkgLoad();
+$('apiKey').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pkgLoad(); } };
+$('dlHead').onclick = () => dlToggle();
+$('pkgDl').onclick = pkgDownload;
+$('dlRetry').onclick = () => pkgDownload();
+$('dlCancel').onclick = dlCancel;
 
 init();
 refreshStatus();
