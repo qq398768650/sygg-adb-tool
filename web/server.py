@@ -1895,7 +1895,9 @@ def _head_headers(url):
         return {}
 
 
-CDN_DEFAULT = "http://cdn.vr.hoseavr.com/arasset/"
+# 2026-11-05：发布链路统一走 cdn2（oss-direct 直传 OSS，清单与整包都在 cdn2 子目录
+# `{project}/v{versionCode}/`）。旧的 cdn.vr 只剩服务器本地老清单，新对象请一律用 cdn2。
+CDN_DEFAULT = "http://cdn2.vr.hoseavr.com/arasset/"
 
 # 发布后台（景区注册表 / 资产列表），鉴权走请求头 X-AR-API-Key，密钥由使用者在页面里填。
 AR_API_BASE = "http://www.hoseavr.com:8081/book/main/"
