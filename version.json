@@ -1,10 +1,10 @@
 {
-  "version": "1.0.2",
-  "notes": "新增设备卡片无线调试（adb over TCP，可开机常驻）；修复普通安装成功后包名不显示、必须刷新网页的问题",
+  "version": "1.0.3",
+  "notes": "修复检查更新误报：多镜像取最高版本，同版本文件差异不再显示为「发现新版本」",
   "files": {
-    "launcher.exe": "a997a46cbe934a3fb97dcd0f2c9996b2",
-    "web/server.py": "106aa7d10686ec00e257a959e95fb584",
-    "web/index.html": "5b5065935953b972f39de10a1cc42e36",
+    "launcher.exe": "be6ee33611b11629cbc012b398826819",
+    "web/server.py": "5ba292143ac53b2233db8a83dfa08a92",
+    "web/index.html": "b819bddd09e1e0be9631e9cfa3efb946",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

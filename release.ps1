@@ -127,7 +127,10 @@ if (Test-Path $clPath) {
 Write-Host '[release] 提交并推送 ...' -ForegroundColor Cyan
 git add -A
 git commit -m "release $version"
-git push
+# 有些机器上全局 http.proxy 指向的 Clash 会对 github 握手失败（schannel）。
+# 先直连，失败再退回代理配置，避免每次都卡在 push。
+git -c http.proxy= -c https.proxy= push
+if ($LASTEXITCODE -ne 0) { Write-Host '[release] 直连推送失败，改用系统代理重试 ...' -ForegroundColor Yellow; git push }
 
 # 创建 GitHub Release（发布信息 + 更新日志），走 Clash 代理
 Write-Host '[release] 创建 GitHub Release ...' -ForegroundColor Cyan

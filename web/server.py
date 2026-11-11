@@ -117,7 +117,11 @@ def ver_tuple(v):
 
 
 def fetch_remote_version(timeout=20):
-    """用 Windows 自带 curl.exe 依次尝试各镜像拉取远端 version.json。"""
+    """用 Windows 自带 curl.exe 拉远端 version.json，取所有镜像里版本号最高的一份。
+
+    不能只认第一个能用的镜像：刚发布后 ghfast 等镜像常还缓存着旧清单，
+    会表现为「发现新版本 v1.0.1（当前 v1.0.1）」甚至把客户端拉回旧版。
+    """
     import tempfile
     tmp = os.path.join(tempfile.gettempdir(), "sygg_adb_version.json")
     curl = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "curl.exe")
@@ -125,6 +129,7 @@ def fetch_remote_version(timeout=20):
         curl = "curl.exe"
     last_err = "网络不可用"
     ts = int(time.time())   # 时间戳绕过镜像缓存（刚发布时镜像可能还缓存着旧版）
+    best = None
     for base in UPDATE_MIRRORS:
         try:
             os.remove(tmp)
@@ -137,14 +142,21 @@ def fetch_remote_version(timeout=20):
         except Exception as e:
             last_err = str(e)
             continue
-        if os.path.isfile(tmp) and os.path.getsize(tmp) > 0:
-            try:
-                with open(tmp, "r", encoding="utf-8-sig") as f:
-                    return json.load(f)
-            except Exception as e:
-                last_err = str(e)
-        else:
+        if not (os.path.isfile(tmp) and os.path.getsize(tmp) > 0):
             last_err = "镜像无响应"
+            continue
+        try:
+            with open(tmp, "r", encoding="utf-8-sig") as f:
+                data = json.load(f)
+        except Exception as e:
+            last_err = str(e)
+            continue
+        if not isinstance(data, dict):
+            continue
+        if best is None or ver_tuple(data.get("version", "")) > ver_tuple(best.get("version", "")):
+            best = data
+    if best is not None:
+        return best
     raise RuntimeError("无法获取远端版本：%s" % last_err)
 
 

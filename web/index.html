@@ -919,7 +919,13 @@ async function checkUpdate() {
     $('verTag').classList.remove('new');
     if (!d.has_update) { toast('已是最新版本 v' + d.local, 'ok'); return; }
     $('verTag').classList.add('new');
-    if (!await confirmUI(`发现新版本 v${d.remote}（当前 v${d.local}）\n\n是否立即更新？\n更新过程中界面会短暂断开 3~5 秒（替换主程序），随后自动恢复。`)) return;
+    // 版本号相同但文件 MD5 有差异：说明本地被改过/重打包过，提示「校准」而不是「发现新版本」
+    const changed = d.changed || [];
+    const sameVer = !d.remote || d.remote === d.local;
+    const tip = sameVer
+      ? `本地文件与发布版 v${d.local} 不一致（${changed.length} 个文件：${changed.join('、') || '未知'}）\n\n是否重新下载对齐？\n更新过程中界面会短暂断开 3~5 秒（替换主程序），随后自动恢复。`
+      : `发现新版本 v${d.remote}（当前 v${d.local}）\n\n是否立即更新？\n更新过程中界面会短暂断开 3~5 秒（替换主程序），随后自动恢复。`;
+    if (!await confirmUI(tip)) return;
     await doUpdate();
   } catch (e) {
     toast('检查更新失败：' + e, 'err');
