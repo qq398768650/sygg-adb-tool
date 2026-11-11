@@ -77,6 +77,8 @@ python -m PyInstaller --onefile --name launcher ^
 1. 从**多个镜像**拉 `version.json?t=<时间戳>`，取版本号最高的一份（防某个镜像缓存旧版）
    - 镜像：`ghfast.top`、`gh-proxy.com`、`cdn.jsdelivr.net`、`raw.githubusercontent.com`
    - **不要加回 `gcore.jsdelivr.net`**：它缓存过极旧的清单，曾导致客户端降级
+   - `web/server.py` 的 `fetch_remote_version()` 同样必须取最高版本，**不能只认第一个可用的镜像**：
+     曾因 ghfast 缓存旧清单，出现「发现新版本 v1.0.1（当前 v1.0.1）」的误报
 2. 版本号只认语义化 `v主.次.补`；非语义化（如旧的 `202610131253`）一律当 `0.0.0`
 3. 本地版本 ≥ 远端 → 已是最新，退出
 4. 逐文件比对 MD5，只下载有变化的；每个文件逐个镜像试，**MD5 命中才采用**
@@ -205,6 +207,7 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 | 更新报「各镜像内容不一致」 | 行尾符 / MD5 不一致（见 §5.2） |
 | 更新后服务没回来 | 更新器没拉起 exe，看项目目录 `.update.log`；或 `_PYI_*` 变量没清（见 §5.3） |
 | 检查更新看不到新版本 | 镜像缓存（见 §5.6） |
+| 提示「发现新版本 vX（当前 vX）」 | 某个镜像缓存了旧清单；`fetch_remote_version()` 已改为取多镜像最高版本（1.0.3 起） |
 | 装完没有读写权限 | APK 未声明权限，或 `MANAGE_EXTERNAL_STORAGE` 未 allow |
 | 装的是旧 APK | 下拉框选错 / 同名文件被覆盖 |
 | 普通安装没推 fsa | 普通安装**本来就不推** fsa，用「并行安装」 |
