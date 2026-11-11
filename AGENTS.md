@@ -175,6 +175,16 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 `read_local_version()` / `fetch_remote_version()` / `start_self_update()` / `_updater_cmd()`；
 路由：`GET /api/version`、`GET /api/check_update`、`POST /api/update`（异步，立即返回 `started`）、`GET /api/update_status`（进度 + 日志）、`POST /api/restart`。
 
+### 6.6 无线调试（adb over TCP）
+`device_ip(serial)` / `wifi_debug_enable(serial, port=5555, keep=True)` / `wifi_debug_disable(serial)`；
+路由：`POST /api/wifi_debug`、`POST /api/wifi_debug_off`。开启流程 = 读 IP → `adb root` → 可选写
+`persist.adb.tcp.port`（重启后 adbd 自动监听）→ `adb tcpip 5555` → `adb connect <ip>:5555` → 校验状态为 `device`。
+
+- 无线设备在 `adb devices` 里的 serial 是 `<ip>:5555`：按 serial 的现有流程（安装/投屏/日志）都能直接用，
+  但做 MAC、序列号、去重对比时要先剥掉 `:5555`
+- 前提是电脑和设备在同一 WiFi 网段，且 AP 没开客户端隔离；设备需能 `adb root` 才能写持久化属性
+- 设备卡片上的「无线」按钮：USB 设备=开启，带「无线」标签的设备=断开并切回 USB
+
 ---
 
 ## 7. 代码约定

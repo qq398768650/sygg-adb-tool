@@ -1,10 +1,10 @@
 {
-  "version": "1.0.1",
-  "notes": "下载安装包改用 cdn2（发布链路已统一到 cdn2，旧 cdn.vr 只剩历史清单）",
+  "version": "1.0.2",
+  "notes": "新增设备卡片无线调试（adb over TCP，可开机常驻）；修复普通安装成功后包名不显示、必须刷新网页的问题",
   "files": {
-    "launcher.exe": "b95d31ba95591a3ac9b1c9ba91041b84",
-    "web/server.py": "517ed63b89ccb5f2fcd9a6324b62fc48",
-    "web/index.html": "1bca07c708a502c2521c2fcb23e52ea4",
+    "launcher.exe": "a997a46cbe934a3fb97dcd0f2c9996b2",
+    "web/server.py": "106aa7d10686ec00e257a959e95fb584",
+    "web/index.html": "5b5065935953b972f39de10a1cc42e36",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

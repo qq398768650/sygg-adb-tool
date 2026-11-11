@@ -239,7 +239,7 @@
   .dev .devbtns{ display:flex; gap:4px; margin-top:7px; }
   .dev .devbtns button{ flex:1 1 0; justify-content:center; margin-top:0; padding:4px 3px; font-size:10px; gap:3px; }
   .dev .devbtns button svg{ width:10px; height:10px; }
-  .dev .wfbtn, .dev .logbtn, .dev .scbtn{
+  .dev .wfbtn, .dev .logbtn, .dev .scbtn, .dev .wdbtn{
     display:inline-flex; align-items:center; gap:4px;
     margin-top:7px; padding:4px 8px; font-size:10.5px; border-radius:5px;
     border:1px solid var(--line-2); background:transparent; color:#A9B8CB;
@@ -248,8 +248,14 @@
   .dev .wfbtn:hover{ color:#7DD3FC; border-color:rgba(56,189,248,.6); background:rgba(56,189,248,.08); }
   .dev .logbtn:hover{ color:#6EE7B7; border-color:rgba(52,211,153,.6); background:rgba(52,211,153,.08); }
   .dev .scbtn:hover{ color:#FCD34D; border-color:rgba(245,158,11,.6); background:rgba(245,158,11,.08); }
-  .dev .wfbtn:disabled, .dev .scbtn:disabled{ opacity:.45; cursor:wait; }
-  .dev .wfbtn svg, .dev .logbtn svg, .dev .scbtn svg{ width:11px; height:11px; flex-shrink:0; }
+  .dev .wdbtn:hover{ color:#C4B5FD; border-color:rgba(167,139,250,.6); background:rgba(167,139,250,.08); }
+  .dev .wfbtn:disabled, .dev .scbtn:disabled, .dev .wdbtn:disabled{ opacity:.45; cursor:wait; }
+  .dev .wfbtn svg, .dev .logbtn svg, .dev .scbtn svg, .dev .wdbtn svg{ width:11px; height:11px; flex-shrink:0; }
+  .dev .wtag{
+    display:inline-block; margin-left:4px; padding:0 4px; border-radius:3px;
+    font-size:9px; line-height:14px; vertical-align:1px;
+    color:#C4B5FD; border:1px solid rgba(167,139,250,.55); background:rgba(167,139,250,.1);
+  }
   .dev .wfres{ margin-top:5px; font-size:10.5px; min-height:12px; }
   .dev .appline{ display:flex; gap:5px; align-items:center; margin-top:7px; }
   .dev .appsel{
@@ -510,10 +516,12 @@
   html[data-theme="light"] .dev .batpct.mid{ color:#B45309; }
   html[data-theme="light"] .dev .batpct.low{ color:#DC2626; }
   html[data-theme="light"] .dev .batzap{ color:#15803D; }
-  html[data-theme="light"] .dev .wfbtn, html[data-theme="light"] .dev .logbtn, html[data-theme="light"] .dev .scbtn{ color:#475569; }
+  html[data-theme="light"] .dev .wfbtn, html[data-theme="light"] .dev .logbtn, html[data-theme="light"] .dev .scbtn, html[data-theme="light"] .dev .wdbtn{ color:#475569; }
   html[data-theme="light"] .dev .wfbtn:hover{ color:#0369A1; }
   html[data-theme="light"] .dev .logbtn:hover{ color:#047857; }
   html[data-theme="light"] .dev .scbtn:hover{ color:#B45309; }
+  html[data-theme="light"] .dev .wdbtn:hover{ color:#6D28D9; }
+  html[data-theme="light"] .dev .wtag{ color:#6D28D9; border-color:rgba(109,40,217,.45); background:rgba(109,40,217,.07); }
   html[data-theme="light"] .appsel{ background:#FFFFFF; border-color:var(--line-2); }
   html[data-theme="light"] .trash{ color:#DC2626; }
   html[data-theme="light"] .btn:disabled{ background:#E2E8F0; border-color:#CBD5E1; color:#94A3B8; }
@@ -1320,11 +1328,11 @@ function init() {
   refreshDevices();
 }
 
-function refreshDevices() {
+function refreshDevices(forceApps) {
   api('devices').then(d => {
     state.devices = d.devices || [];
     state.pending = d.pending || [];
-    syncCardApps();          // 新出现的设备自动拉取已装应用列表
+    syncCardApps(forceApps);   // 新出现的设备自动拉取已装应用列表；forceApps 时忽略缓存
     syncCardBattery();       // 同步电量（30 秒 TTL）
     adbDevices();            // 同步 ADB 终端的设备下拉框
     renderDevices();
@@ -1346,6 +1354,9 @@ function renderPendingTip() {
   if (!state.pending.length) { tip.style.display = 'none'; return; }
   tip.style.display = '';
   tip.innerHTML = state.pending.map(p => {
+    if (String(p.serial).includes(':')) {
+      return `<b>${p.serial}</b> 无线调试设备 ${p.state} —— 检查电脑和设备是否还在同一 WiFi 网段（AP 别开客户端隔离），或插回 USB 线后在卡片上重新点「无线」。`;
+    }
     if (p.state === 'unauthorized') {
       return `<b>${p.serial}</b> 已连上电脑，但手机还没点授权 —— 解锁手机，在「允许 USB 调试吗？」弹窗里勾选「一律允许使用这台计算机」并点确定；<b>没看到弹窗</b>就去「开发者选项 → 撤销 USB 调试授权」，再重插数据线。`;
     }
@@ -1385,12 +1396,14 @@ function renderDevices() {
     const wf = state.wifiMap[s];
     let wcls = 'na', wtxt = '';
     if (wf) { wcls = wf.connected ? 'on' : 'off'; wtxt = wf.ssid; }
+    const isWifiDev = s.includes(':');
     return `<div class="dev ${on?'on':''}" data-sn="${s}">
       <span class="wifi-dot ${wcls}" title="${wtxt ? '已连接: ' + wtxt : (wcls==='off' ? 'WiFi未连接' : 'WiFi状态未知')}"></span>
-      <div class="sn">${s}</div><div class="st">${stxt}</div>
+      <div class="sn">${s}${isWifiDev ? '<span class="wtag">无线</span>' : ''}</div><div class="st">${stxt}</div>
       ${batLineHtml(s)}
       <div class="devbtns">
         <button class="wfbtn" data-sn="${s}" title="重连 WiFi"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>重连</button>
+        <button class="wdbtn" data-sn="${s}" title="${isWifiDev ? '断开无线调试，切回 USB' : '切到无线调试（adb over TCP，需 root）'}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 8.82a15 15 0 0 1 20 0"/><path d="M5 12.55a11 11 0 0 1 14 0"/><path d="M8.5 16.1a6 6 0 0 1 7 0"/><path d="M12 20h.01"/></svg>${isWifiDev ? '断开' : '无线'}</button>
         <button class="logbtn" data-sn="${s}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>日志</button>
         <button class="scbtn" data-sn="${s}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>投屏</button>
       </div>
@@ -1401,7 +1414,7 @@ function renderDevices() {
     el.addEventListener('click', (e) => {
       const t = e.target;
       if (t.classList && (t.classList.contains('wfbtn') || t.classList.contains('logbtn') ||
-                          t.classList.contains('scbtn') ||
+                          t.classList.contains('scbtn') || t.classList.contains('wdbtn') ||
                           t.classList.contains('appsel') || t.classList.contains('trash'))) return;
       const s = el.dataset.sn;
       state.devicesChecked[s] = !state.devicesChecked[s];
@@ -1412,6 +1425,12 @@ function renderDevices() {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
       reconnectSingleWifi(btn);
+    });
+  });
+  box.querySelectorAll('.wdbtn').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      wifiDebugToggle(btn);
     });
   });
   box.querySelectorAll('.logbtn').forEach(btn => {
@@ -1532,6 +1551,44 @@ function reconnectSingleWifi(btn) {
       btn.textContent = '⟳ 重连WiFi';
       refreshWifi();
     });
+}
+
+// 设备卡片「无线」按钮：USB 设备切成 adb over TCP；无线设备则断开切回 USB
+async function wifiDebugToggle(btn) {
+  const s = btn.dataset.sn;
+  const isWifi = s.includes(':');
+  if (isWifi && !await confirmUI(`断开无线调试？\n\n设备：${s}\n断开后该设备只能用 USB 线操作。`)) return;
+  const resEl = document.querySelector(`.wfres[data-sn="${s}"]`);
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = isWifi ? '断开中…' : '切换中…';
+  if (resEl) {
+    resEl.style.color = '';
+    resEl.textContent = isWifi ? '正在断开…' : '正在开启无线调试（root → tcpip → connect）…';
+  }
+  try {
+    const r = isWifi
+      ? await api('wifi_debug_off', { method:'POST',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify({ serial: s }) })
+      : await api('wifi_debug', { method:'POST',
+          headers:{'Content-Type':'application/json'}, body: JSON.stringify({ serial: s, keep: true }) });
+    if (r.error) throw new Error(r.error);
+    if (resEl) {
+      resEl.style.color = r.ok ? '#4ade80' : '#f87171';
+      const last = (r.log || []).slice(-2).join(' · ');
+      resEl.textContent = r.ok
+        ? (isWifi ? '已切回 USB' : `已连接 ${r.addr}（开机保持）`)
+        : (r.error || last || '失败');
+    }
+    toast(r.ok ? (isWifi ? `已断开无线：${s}` : `无线调试已开启：${r.addr}`)
+               : `无线调试失败：${r.error || '未知错误'}`, r.ok ? 'ok' : 'err', 5000);
+  } catch (e) {
+    if (resEl) { resEl.style.color = '#f87171'; resEl.textContent = '请求失败：' + e.message; }
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = old;
+    refreshDevices();
+  }
 }
 
 function renderStatus() {
@@ -1954,7 +2011,7 @@ function getSelectedApkPath() {
   return $('apkSelect').value;
 }
 
-$('scanBtn').onclick = () => { syncCardBattery(true); refreshDevices(); };
+$('scanBtn').onclick = () => { syncCardBattery(true); refreshDevices(true); };
 $('checkAll').onclick = () => { state.devicesChecked={}; state.devices.forEach(s=>state.devicesChecked[s]=true); renderDevices(); };
 $('uncheckAll').onclick = () => { state.devicesChecked={}; renderDevices(); };
 
@@ -1978,6 +2035,22 @@ $('runBtn').onclick = () => {
       poll = setInterval(refreshStatus, 1500);
     }).catch(e => { $('runErr').textContent = '启动失败：'+e.message; });
 };
+
+// 普通安装没有汇总弹窗，但装完必须让卡片上的应用下拉框重新拉一次；
+// 否则 120s 缓存里没有新包，看起来像“包没装上”，只能刷新网页（旧 bug）
+function watchPlainInstallDone(devs) {
+  const t0 = Date.now();
+  const iv = setInterval(() => {
+    api('status').then(d => {
+      const map = {};
+      (d.devices || []).forEach(x => map[x.serial] = x);
+      const busy = devs.some(s => map[s] && map[s].state === 'running');
+      if (busy && Date.now() - t0 < 10 * 60 * 1000) return;
+      clearInterval(iv);
+      refreshDevices(true);
+    }).catch(() => { if (Date.now() - t0 > 10 * 60 * 1000) clearInterval(iv); });
+  }, 2000);
+}
 
 $('plainBtn').onclick = async () => {
   const sel = getSelectedApkPath();
@@ -2003,6 +2076,7 @@ $('plainBtn').onclick = async () => {
       if (poll) clearInterval(poll);
       refreshStatus();
       poll = setInterval(refreshStatus, 1500);
+      watchPlainInstallDone(devs);   // 装完强制重拉应用列表，包名立刻出现
     }).catch(e => { $('runErr').textContent = '启动失败：'+e.message; });
 };
 
@@ -2258,9 +2332,11 @@ function fetchApps(serial, done) {
 }
 
 // 设备卡片自动拉取：新设备立即拉，已有数据按 TTL 缓存，失败则短退避重试
-function syncCardApps() {
+// force=true 时无视缓存，全部重拉（刚装完应用 / 点「刷新设备」时用）
+function syncCardApps(force) {
   const now = Date.now();
   state.devices.forEach(s => {
+    if (force) { delete appsState.data[s]; fetchApps(s); return; }
     const d = appsState.data[s];
     if (!d) { fetchApps(s); return; }
     const age = now - (d.ts || 0);

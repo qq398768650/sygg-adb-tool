@@ -2329,6 +2329,121 @@ def all_batteries(serials=None):
     return result
 
 
+def device_ip(serial):
+    """读设备 wlan0 的 IPv4 地址；读不到返回空串。
+
+    `ip addr show wlan0` 给的是 inet x.x.x.x；`ip route get` 给的是 src x.x.x.x，
+    两种格式都兼容。刻意重试一次：刚连上 WiFi 时第一条命令偶尔还没地址。
+    """
+    for _ in range(2):
+        for args in (["shell", "ip", "-4", "addr", "show", "wlan0"],
+                     ["shell", "ip", "route", "get", "8.8.8.8"]):
+            try:
+                _rc, out = adb_shell(serial, args, timeout=20)
+            except Exception:
+                continue
+            m = re.search(r"(?:inet|src)\s+(\d{1,3}(?:\.\d{1,3}){3})", out or "")
+            if m and not m.group(1).startswith("127."):
+                return m.group(1)
+        time.sleep(1)
+    return ""
+
+
+def wifi_debug_enable(serial, port=5555, keep=True):
+    """把 USB 设备切到无线调试（adb over TCP）。
+
+    keep=True 时额外写 persist.adb.tcp.port，设备重启后 adbd 会自动监听该端口，
+    现场批量部署不用每次重新插线。返回结果同时带日志，供前端卡片展示。
+    """
+    info = {"ok": False, "serial": serial, "ip": "", "addr": "",
+            "keep": bool(keep), "log": [], "error": ""}
+
+    def say(msg):
+        info["log"].append(msg)
+
+    try:
+        port = int(port or 5555)
+    except (TypeError, ValueError):
+        port = 5555
+
+    try:
+        if ":" in serial:
+            ip = serial.rsplit(":", 1)[0]
+            say("已是无线设备：" + serial)
+        else:
+            ip = device_ip(serial)
+            if not ip:
+                info["error"] = "读不到设备 IP（WiFi 未连接，或设备没有 wlan0）"
+                return info
+            say("设备 IP：" + ip)
+            rc, out = adb_shell(serial, ["root"], timeout=30)
+            say("adb root：" + ((out or "").strip() or ("rc=%d" % rc)))
+            adb_shell(serial, ["wait-for-device"], timeout=60)
+            time.sleep(2)
+            if keep:
+                adb_shell(serial, ["shell", "setprop", "persist.adb.tcp.port", str(port)], timeout=20)
+                say("已写 persist.adb.tcp.port=%d（重启后仍监听）" % port)
+            rc, out = adb_shell(serial, ["tcpip", str(port)], timeout=30)
+            txt = (out or "").strip()
+            say("adb tcpip %d：%s" % (port, txt or ("rc=%d" % rc)))
+            if rc != 0:
+                info["error"] = txt or "adb tcpip 失败（设备可能没有 root）"
+                return info
+            time.sleep(2)
+
+        addr = "%s:%d" % (ip, port)
+        info["ip"], info["addr"] = ip, addr
+        connected = False
+        for attempt in range(1, 7):
+            r = adb_run("", ["connect", addr], timeout=20)
+            txt = (r.get("out") or "").strip()
+            say("adb connect（第 %d 次）：%s" % (attempt, txt or r.get("error", "")))
+            low = txt.lower()
+            if "connected to" in low and "cannot" not in low and "failed" not in low:
+                connected = True
+                break
+            time.sleep(2)
+        if not connected:
+            info["error"] = "adb connect 失败（检查电脑与设备是否同一网段、AP 是否开了客户端隔离）"
+            return info
+
+        for _attempt in range(1, 6):
+            state = dict(list_devices_detail()).get(addr, "")
+            if state == "device":
+                info["ok"] = True
+                say("校验通过：%s 已在线" % addr)
+                break
+            say("等待 %s 变为 device（当前 %s）" % (addr, state or "未出现"))
+            time.sleep(2)
+        if not info["ok"] and not info["error"]:
+            info["error"] = "adb 已连接但设备未就绪"
+    except Exception as e:
+        info["error"] = str(e)
+    return info
+
+
+def wifi_debug_disable(serial):
+    """关闭无线调试：清持久化属性 -> adb usb 切回 USB -> 断开该无线地址。"""
+    res = {"ok": False, "serial": serial, "log": [], "error": ""}
+
+    def say(msg):
+        res["log"].append(msg)
+
+    addr = serial if ":" in serial else ""
+    try:
+        adb_shell(serial, ["shell", "setprop", "persist.adb.tcp.port", ""], timeout=20)
+        say("已清除 persist.adb.tcp.port")
+        rc, out = adb_shell(serial, ["usb"], timeout=30)
+        say("adb usb：" + ((out or "").strip() or ("rc=%d" % rc)))
+        if addr:
+            r = adb_run("", ["disconnect", addr], timeout=20)
+            say("adb disconnect %s：%s" % (addr, (r.get("out") or "").strip() or "done"))
+        res["ok"] = True
+    except Exception as e:
+        res["error"] = str(e)
+    return res
+
+
 def check_one_wifi(serial):
     """检测单台设备 WiFi 状态，返回 dict"""
     info = {"serial": serial, "wifi_on": False, "connected": False,
@@ -3447,6 +3562,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "serial required"})
                 return
             res = reconnect_wifi(ser, ssid, wpass)
+            self._send(200, res)
+            return
+        if self.path.split("?")[0] == "/api/wifi_debug":
+            data = self._read_body()
+            ser = (data.get("serial") or "").strip()
+            if not ser:
+                self._send(400, {"error": "serial required"})
+                return
+            try:
+                port = int(data.get("port") or 5555)
+            except (TypeError, ValueError):
+                port = 5555
+            keep = data.get("keep", True)
+            res = wifi_debug_enable(ser, port=port, keep=bool(keep))
+            self._send(200, res)
+            return
+        if self.path.split("?")[0] == "/api/wifi_debug_off":
+            data = self._read_body()
+            ser = (data.get("serial") or "").strip()
+            if not ser:
+                self._send(400, {"error": "serial required"})
+                return
+            res = wifi_debug_disable(ser)
             self._send(200, res)
             return
         if self.path.split("?")[0] == "/api/deviceid":
