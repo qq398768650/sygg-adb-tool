@@ -736,10 +736,13 @@ RUNTIME_PERMS = [
 
 # 特殊权限（appops set 授予）：pm grant 授不了，需 appops。
 # Android 11+ 读写 /sdcard 公共目录靠 MANAGE_EXTERNAL_STORAGE（所有文件访问）。
+# REQUEST_INSTALL_PACKAGES 即系统设置里的「安装未知应用」：不开的话 App 自己
+# 下载/内置的 APK 弹不出安装界面（App 内差分更新、现场自升级都会卡在这一步）。
 APPOP_PERMS = [
     "MANAGE_EXTERNAL_STORAGE",
     "SYSTEM_ALERT_WINDOW",
     "POST_NOTIFICATION",
+    "REQUEST_INSTALL_PACKAGES",
 ]
 
 
@@ -787,6 +790,8 @@ def grant_permissions(serial, pkg, declared=None):
             log(serial, f"         [WARN] appops {op}: {(out or '')[:200].strip()}")
     rc, out = adb_shell(serial, ["shell", "appops", "get", pkg, "MANAGE_EXTERNAL_STORAGE"], timeout=30)
     log(serial, f"       MANAGE_EXTERNAL_STORAGE = {(out or '').strip()[:120]}")
+    rc, out = adb_shell(serial, ["shell", "appops", "get", pkg, "REQUEST_INSTALL_PACKAGES"], timeout=30)
+    log(serial, f"       REQUEST_INSTALL_PACKAGES = {(out or '').strip().replace(chr(10), ' ')[:120]}")
 
     # 电池优化白名单（避免被系统杀后台）
     rc, out = adb_shell(serial, ["shell", "dumpsys", "deviceidle", "whitelist", f"+{pkg}"], timeout=30)

@@ -156,9 +156,10 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - 并行安装：每台设备一个线程跑 `install_one`
 
 ### 6.2 权限
-`RUNTIME_PERMS`（14 个运行时权限）+ `APPOP_PERMS`（`MANAGE_EXTERNAL_STORAGE` / `SYSTEM_ALERT_WINDOW` / `POST_NOTIFICATION`）。
+`RUNTIME_PERMS`（14 个运行时权限）+ `APPOP_PERMS`（`MANAGE_EXTERNAL_STORAGE` / `SYSTEM_ALERT_WINDOW` / `POST_NOTIFICATION` / `REQUEST_INSTALL_PACKAGES`）。
 `grant_permissions(serial, pkg, declared)` 只对 **APK 清单里声明过的** 权限执行 `pm grant`；未声明的记 `[SKIP]` 而不是 `[FAIL]`（避免 `SecurityException` 刷屏）。
 读写 `/sdcard` 在 Android 11+ 靠 `appops set <pkg> MANAGE_EXTERNAL_STORAGE allow`。
+`REQUEST_INSTALL_PACKAGES` 就是系统设置里的「安装未知应用」，不开的话 App 内自更新/差分更新装不进去。
 
 ### 6.3 fsa 数据
 优先级：**APK 内置 `assets/aikit/fsa/`** → 本地 `fsa/`（仅当 `.fsa_meta.json` 记录的归属 APK 与当前 APK 一致）→ 都没有则告警跳过。
