@@ -1,10 +1,10 @@
 {
-  "version": "1.0.6",
-  "notes": "安装后自动打开「安装未知应用」权限（appops REQUEST_INSTALL_PACKAGES），App 内自更新不再被拦",
+  "version": "1.0.7",
+  "notes": "文案：无 Device Owner 也能差分更新（需人工点安装）",
   "files": {
     "launcher.exe": "9998e89556d94a323aef6b3c9faee4dd",
     "web/server.py": "55246fd33c3ca4daf7d04b5e0cba0b56",
-    "web/index.html": "6d8bfc716c882ca4878eabf834881351",
+    "web/index.html": "2b73952fbeedbc8831880c0e88bc35db",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
