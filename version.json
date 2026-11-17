@@ -1,5 +1,5 @@
 {
-  "version": "1.0.4",
+  "version": "1.0.6",
   "notes": "安装后自动打开「安装未知应用」权限（appops REQUEST_INSTALL_PACKAGES），App 内自更新不再被拦",
   "files": {
     "launcher.exe": "9998e89556d94a323aef6b3c9faee4dd",

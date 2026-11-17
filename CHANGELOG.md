@@ -4,6 +4,10 @@
 
 版本号采用语义化 `v主.次.修订`（如 `v0.1.0`），每次发布默认修订号 +1。
 
+## v1.0.6 - 2026-11-17
+
+安装后自动打开「安装未知应用」权限（appops REQUEST_INSTALL_PACKAGES），App 内自更新不再被拦
+
 ## v1.0.4 - 2026-11-17
 
 安装后自动打开「安装未知应用」权限（appops REQUEST_INSTALL_PACKAGES），App 内自更新不再被拦
