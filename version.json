@@ -1,9 +1,9 @@
 {
-  "version": "1.0.4",
-  "notes": "下载列表改读 index.json + meta.json：以前依赖 listArAssets 不返回大文件，娘子关631MB/西递149MB/乔家大院1.1GB 的包列不出来；现在按版本列全，并过滤掉 OSS 上已不存在的死链",
+  "version": "1.0.5",
+  "notes": "修复娘子关显示名乱码（后端 displayName 存了 U+FFFD，展示层用本地中文名兜底）",
   "files": {
-    "launcher.exe": "d9906966a3c36ac67aea2b4de5de4118",
-    "web/server.py": "e9a6b9b474c01e7dcf2a29cf240ccd58",
+    "launcher.exe": "ac31626acdde5f9abb3cd38c643f82e0",
+    "web/server.py": "4048d804053f818205bef6efa8f5e55b",
     "web/index.html": "b819bddd09e1e0be9631e9cfa3efb946",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",

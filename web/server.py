@@ -1960,6 +1960,32 @@ def _cdn_json(url, timeout=10):
         return None
 
 
+# 后端有个别景区的 displayName 存成了乱码：注册 niangziguan 时中文经命令行按 GBK 传过去，
+# 落到库里就是 U+FFFD 替换字符（读回来 '\ufffd\ufffd\ufffd\u04f9\ufffd'），而后端没有
+# update/delete 景区的接口，改不了。只能在展示层兜底。
+PROJECT_CN_NAMES = {
+    "shenyang_palace": "沈阳故宫",
+    "huangcheng": "皇城相府",
+    "anhui_xidi": "安徽西递",
+    "niangziguan": "娘子关",
+    "song_chao_bu_ye_cheng": "宋潮不夜城",
+    "qiao_jia_da_yuan": "乔家大院",
+    "yun_gang_shi_ku": "云冈石窟",
+    "qufu_san_kong": "曲阜三孔",
+    "qinghuiyuan": "顺德清晖园",
+    "shenxi": "山西",
+}
+
+
+def _display_name(p):
+    """取景区显示名：displayName 为空或含 U+FFFD 乱码时用本地中文名兜底，再不行用项目 key。"""
+    name = (p.get("displayName") or "").strip()
+    proj = (p.get("project") or "").strip()
+    if (not name) or ("\ufffd" in name):
+        return PROJECT_CN_NAMES.get(proj, proj or "未知景区")
+    return name
+
+
 def _packages_from_index(proj, display, cur):
     """从 {proj}/index.json + 各版本 meta.json 拼下载列表（2026-11-17 新增）。
 
@@ -2027,7 +2053,7 @@ def list_ar_packages(api_key):
         if not proj:
             continue
         cur = p.get("currentVersionCode") or 0
-        display = p.get("displayName") or proj
+        display = _display_name(p)
 
         by_index = _packages_from_index(proj, display, cur)
         if by_index is not None:
