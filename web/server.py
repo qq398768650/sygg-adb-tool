@@ -1947,11 +1947,78 @@ def _ar_get(endpoint, api_key, params=None, timeout=25):
     return j.get("data") or {}
 
 
+_CDN_PKG_CACHE = {"at": 0.0, "data": None}
+
+
+def _cdn_json(url, timeout=10):
+    """直接读 CDN 上的公开 json（不需要接口密钥）。失败返回 None。"""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "sygg-adb-tool"})
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return None
+
+
+def _packages_from_index(proj, display, cur):
+    """从 {proj}/index.json + 各版本 meta.json 拼下载列表（2026-11-17 新增）。
+
+    为什么不用 listArAssets.do：该接口**不返回大文件** —— 西递 149MB、娘子关 631MB 的包
+    根本列不出来，导致下载列表缺版本。index.json 列全部版本，meta.json 给真实文件名与大小。
+    """
+    idx = _cdn_json(CDN_DEFAULT + proj + "/index.json")
+    if not idx:
+        return None
+    out = []
+    for v in (idx.get("versions") or []):
+        status = (v.get("status") or "").strip().lower()
+        if status in ("deleted", "removed"):
+            continue
+        vc = int(v.get("versionCode") or 0)
+        if vc <= 0:
+            continue
+        meta = _cdn_json(CDN_DEFAULT + "%s/v%d/meta.json" % (proj, vc)) or {}
+        apk_name = ""
+        apk_size = 0
+        for f in (meta.get("files") or []):
+            nm = str(f.get("name") or "")
+            if nm.lower().endswith(".apk"):
+                apk_name = nm
+                apk_size = int(f.get("size") or 0)
+                break
+        pkg = (meta.get("packageName") or v.get("packageName") or "").strip()
+        if not apk_name:
+            if not pkg:
+                continue
+            apk_name = "%s_v%d.apk" % (pkg, vc)
+        out.append({
+            "name": display,
+            "project": proj,
+            "key": pkg,
+            "versionCode": vc,
+            "size": apk_size,
+            "sha256": meta.get("sha256") or v.get("sha256") or "",
+            "url": CDN_DEFAULT + "%s/v%d/%s" % (proj, vc, apk_name),
+            "publishedAt": meta.get("publishedAt") or v.get("publishedAt") or "",
+            "latest": bool(cur and vc == cur),
+        })
+    return out
+
+
 def list_ar_packages(api_key):
-    """景区列表 + 各景区 APK 资产，拼成可直接下载的 CDN 地址。"""
+    """景区列表 + 各景区 APK 资产，拼成可直接下载的 CDN 地址。
+
+    优先 index.json（新链路，能列全），拿不到再回落到 listArAssets.do（老链路项目）。
+    结果缓存 60 秒：否则每开一次页面就要拉 8 个 index + 几十个 meta。
+    """
     api_key = (api_key or "").strip()
     if not api_key:
         raise ArAuthError("需要访问密钥")
+
+    now = time.time()
+    if _CDN_PKG_CACHE["data"] is not None and now - _CDN_PKG_CACHE["at"] < 60:
+        return _CDN_PKG_CACHE["data"]
+
     data = _ar_get("listArProjects.do", api_key)
     projects = data.get("projects") or []
     out = []
@@ -1959,6 +2026,15 @@ def list_ar_packages(api_key):
         proj = (p.get("project") or "").strip()
         if not proj:
             continue
+        cur = p.get("currentVersionCode") or 0
+        display = p.get("displayName") or proj
+
+        by_index = _packages_from_index(proj, display, cur)
+        if by_index is not None:
+            out.extend(by_index)
+            continue
+
+        # 回落：老链路项目（cdn2 上没有 index.json）
         try:
             ad = _ar_get("listArAssets.do", api_key,
                          {"project": proj, "page": 1, "pageSize": 500})
@@ -1966,7 +2042,6 @@ def list_ar_packages(api_key):
             raise
         except Exception:
             continue
-        cur = p.get("currentVersionCode") or 0
         for f in (ad.get("files") or []):
             if (f.get("kind") or "") != "apk":
                 continue
@@ -1975,7 +2050,7 @@ def list_ar_packages(api_key):
                 continue
             vc = f.get("versionCode") or 0
             out.append({
-                "name": p.get("displayName") or proj,
+                "name": display,
                 "project": proj,
                 "key": p.get("packageName") or "",
                 "versionCode": vc,
@@ -1985,8 +2060,35 @@ def list_ar_packages(api_key):
                 "publishedAt": f.get("mtime") or "",
                 "latest": bool(cur and vc == cur),
             })
+    # 老链路发布的版本没有 meta.json，size 会是 0 —— 用 HEAD/Range 探一次真实大小
+    for rec in out:
+        if rec["size"] > 0:
+            continue
+        h = _head_headers(rec["url"])
+        ln = 0
+        for k in ("Content-Length", "content-length"):
+            if h.get(k):
+                try:
+                    ln = int(h[k])
+                    break
+                except Exception:
+                    pass
+        if ln <= 0:
+            cr = h.get("Content-Range") or h.get("content-range") or ""
+            if "/" in cr:
+                try:
+                    ln = int(cr.rsplit("/", 1)[1])
+                except Exception:
+                    pass
+        rec["size"] = ln
+
+    # 连 HEAD 都探不到长度的（OSS 上对象已不存在）不列出来，免得点了下载才 404
+    out = [r for r in out if r["size"] > 0]
+
     out.sort(key=lambda r: (r["name"], -(r["versionCode"] or 0)))
-    return {"packages": out}
+    res = {"packages": out}
+    _CDN_PKG_CACHE.update({"at": now, "data": res})
+    return res
 
 
 def _resolve_download_name(url, name, resume):
