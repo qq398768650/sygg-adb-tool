@@ -1,5 +1,5 @@
 {
-  "version": "1.0.7",
+  "version": "1.0.8",
   "notes": "修复访问密钥删空后刷新又被填回：输入框与 localStorage 实时同步",
   "files": {
     "launcher.exe": "9998e89556d94a323aef6b3c9faee4dd",
