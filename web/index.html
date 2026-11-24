@@ -1140,7 +1140,7 @@ async function pkgLoad() {
     }
     const arr = (r.packages || []).filter(p => p && p.url);
     pkgList = arr;
-    localStorage.setItem('arApiKey', key);
+    if (key) localStorage.setItem('arApiKey', key);
     sel.innerHTML = '';
     if (!arr.length) {
       sel.innerHTML = '<option>后台还没有已发布的安装包</option>';
@@ -2708,6 +2708,12 @@ loadVersion();
 
 // 从链接下载安装包
 $('apiKey').value = localStorage.getItem('arApiKey') || '';
+// 密钥实时同步到 localStorage：清空输入框就必须真的删掉，否则刷新又被旧值填回来
+$('apiKey').oninput = () => {
+  const v = ($('apiKey').value || '').trim();
+  if (v) localStorage.setItem('arApiKey', v);
+  else localStorage.removeItem('arApiKey');
+};
 $('apiKey').onchange = () => pkgLoad();
 $('apiKey').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pkgLoad(); } };
 $('dlHead').onclick = () => dlToggle();
