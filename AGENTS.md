@@ -188,6 +188,19 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - 前提是电脑和设备在同一 WiFi 网段，且 AP 没开客户端隔离；设备需能 `adb root` 才能写持久化属性
 - 设备卡片上的「无线」按钮：USB 设备=开启，带「无线」标签的设备=断开并切回 USB
 
+### 6.7 WiFi 注入（预置网络）
+`wifi_inject(serial, ssid, password, hidden=False)`；路由 `POST /api/wifi_inject` `{serials?, ssid, pass, hidden?}`。
+
+用途：**设备当前不在该 WiFi 范围内也能把配置写进设备**，搬到覆盖区域后自动连接。
+原理：`cmd wifi connect-network <ssid> wpa2|open [pass] [-m]` 会先把网络写入 `WifiConfigStore`
+再尝试连接，所以「连接失败」不代表「没有保存」。返回值里 `saved`（配置已入库）与 `connected`（当前已连上）分开：
+`cmd wifi list-networks` 里能查到 SSID 即 `saved=true`，`cmd wifi status` 显示连的就是它才算 `connected`。
+
+- 实测（Android 11 / rk3566_r）：注入不存在的 SSID → 输出 `Connection initiated`、rc=0，
+  `list-networks` 立刻出现该网络；当前连接会短暂断开，十几秒后自动回到原网络
+- 已存在同名网络时再次注入 = 更新密码并重连，不需要先 forget
+- 前端在 ② WiFi 区块的「注入WiFi」按钮，对**全部在线设备**注入 `#ssid` / `#pass` 里的值
+
 ---
 
 ## 7. 代码约定

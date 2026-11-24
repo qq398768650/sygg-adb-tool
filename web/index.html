@@ -677,6 +677,7 @@
       <button class="btn ghost sm" id="ssidScanBtn">扫描热点</button>
       <label>密码</label><input type="text" id="pass" value="123456789" placeholder="留空=开放式网络">
       <button class="btn ghost sm" id="wifiCheckBtn">检测全部设备WiFi</button>
+      <button class="btn ghost sm" id="wifiInjectBtn" title="把当前 SSID/密码写进设备：不要求现在就在范围内，设备移动到覆盖区域会自动连接">注入WiFi</button>
     </div>
     <div id="wifiSummary" class="wifi-summary" style="display:none"></div>
     <table id="wifiTable" class="witab" style="display:none;width:100%;border-collapse:collapse;margin-top:10px">
@@ -1559,6 +1560,46 @@ function reconnectSingleWifi(btn) {
     });
 }
 
+// 主动注入 WiFi：不要求设备现在在范围内，配置保存后移动到覆盖区域会自动连
+async function wifiInject() {
+  const ssid = $('ssid').value.trim();
+  const pass = $('pass').value.trim();
+  if (!ssid) { toast('请先在 ② WiFi 里填写 SSID', 'err'); return; }
+  const devs = (state.devices || []).filter(d => d.state === 'device');
+  if (!devs.length) { toast('没有在线设备', 'err'); return; }
+  const tip = `把 WiFi「${ssid}」注入 ${devs.length} 台设备？\n\n`
+    + '不需要设备现在就在这个 WiFi 范围：配置会保存到设备里，'
+    + '设备移动到覆盖区域后会自动连接。\n\n'
+    + '前提：设备上的 WiFi 开关是打开的。';
+  if (!await confirmUI(tip)) return;
+  const btn = $('wifiInjectBtn');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '注入中…';
+  try {
+    const r = await api('wifi_inject', { method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({ serials: devs.map(d => d.serial), ssid, pass }) });
+    if (!r.ok) { toast(r.error || '注入失败', 'err', 5000); return; }
+    const rs = Object.values(r.results || {});
+    const fails = Object.entries(r.results || {}).filter(([, v]) => !v.ok);
+    const savedOnly = rs.filter(v => v.ok && !v.connected).length;
+    if (!fails.length) {
+      toast(`已注入 ${r.ok_count}/${r.total} 台：${ssid}`
+        + (savedOnly ? `（${savedOnly} 台当前不在范围，配置已保存）` : ''), 'ok', 6000);
+    } else {
+      const why = fails.map(([sn, v]) => `${sn}: ${v.error}`).join('；');
+      toast(`注入完成 ${r.ok_count}/${r.total}，失败 ${fails.length} 台：${why}`, 'err', 8000);
+    }
+  } catch (e) {
+    toast('请求失败：' + e.message, 'err', 5000);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = old;
+    refreshWifi();
+  }
+}
+
 // 设备卡片「无线」按钮：USB 设备切成 adb over TCP；无线设备则断开切回 USB
 async function wifiDebugToggle(btn) {
   const s = btn.dataset.sn;
@@ -1749,6 +1790,7 @@ function checkWifi() {
 }
 
 $('wifiCheckBtn').onclick = checkWifi;
+$('wifiInjectBtn').onclick = wifiInject;
 
 $('ssidScanBtn').onclick = () => {
   const btn = $('ssidScanBtn');

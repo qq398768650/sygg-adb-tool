@@ -2589,6 +2589,69 @@ def wifi_debug_disable(serial):
     return res
 
 
+def wifi_inject(serial, ssid, password, hidden=False):
+    """主动注入 WiFi 配置：即使设备当前不在该热点范围内，也把网络写进设备。
+
+    `cmd wifi connect-network` 会先把网络写入 WifiConfigStore 再尝试连接，
+    所以现场没有这个 AP 时连接会失败，但配置已经保存；设备移动到覆盖范围后会自动连上。
+    返回值区分 saved（配置已保存）与 connected（当前已连上）——老板要的是前者。
+    """
+    ssid = (ssid or "").strip().strip('"')
+    password = password or ""
+    res = {"ok": False, "serial": serial, "ssid": ssid, "saved": False,
+           "connected": False, "log": [], "error": ""}
+
+    def say(m):
+        res["log"].append(m)
+
+    if not ssid:
+        res["error"] = "SSID 为空"
+        return res
+    try:
+        adb_shell(serial, ["shell", "svc", "wifi", "enable"], timeout=20)
+        sec = "wpa2" if password else "open"
+        args = ["shell", "cmd", "wifi", "connect-network", ssid, sec]
+        if password:
+            args.append(password)
+        if hidden:
+            args.append("-m")
+        rc, out = adb_shell(serial, args, timeout=120)
+        text = (out or "").strip()
+        say("connect-network：%s" % (text or ("rc=%d" % rc)))
+        if rc != 0:
+            res["error"] = (text[:300] or "connect-network 失败（设备可能不支持 cmd wifi）")
+            return res
+
+        # 配置是否真的进了网络列表 —— 与「当前是否连上」分开判断
+        _rc2, out2 = adb_shell(serial, ["shell", "cmd", "wifi", "list-networks"], timeout=40)
+        listed = out2 or ""
+        if ssid in listed:
+            res["saved"] = True
+            say("已写入设备网络列表")
+        else:
+            say("list-networks 未匹配到该 SSID，输出：%s" % (listed.strip()[:300] or "（空）"))
+
+        _rc3, out3 = adb_shell(serial, ["shell", "cmd", "wifi", "status"], timeout=30)
+        st = (out3 or "").lower()
+        if "wifi is connected" in st and ssid.lower() in st:
+            res["connected"] = True
+            say("当前已连接")
+        else:
+            say("当前未连接（不在覆盖范围时正常，配置已保留）")
+
+        # 老固件没有 list-networks 时，退回看命令输出
+        if not res["saved"] and not res["connected"]:
+            low = text.lower()
+            if "connected to" in low or "added" in low or "saved" in low:
+                res["saved"] = True
+        res["ok"] = bool(res["saved"] or res["connected"])
+        if not res["ok"]:
+            res["error"] = "未能确认配置已保存（设备可能不支持 cmd wifi list-networks）"
+    except Exception as e:
+        res["error"] = str(e)
+    return res
+
+
 def check_one_wifi(serial):
     """检测单台设备 WiFi 状态，返回 dict"""
     info = {"serial": serial, "wifi_on": False, "connected": False,
@@ -3708,6 +3771,37 @@ class Handler(BaseHTTPRequestHandler):
                 return
             res = reconnect_wifi(ser, ssid, wpass)
             self._send(200, res)
+            return
+        if self.path.split("?")[0] == "/api/wifi_inject":
+            data = self._read_body()
+            ssid = (data.get("ssid") or "").strip()
+            password = data.get("pass") or ""
+            hidden = bool(data.get("hidden"))
+            serials = data.get("serials") or list_devices()
+            if not ssid:
+                self._send(400, {"ok": False, "error": "SSID 为空"})
+                return
+            if not serials:
+                self._send(400, {"ok": False, "error": "没有在线设备"})
+                return
+            results = {}
+
+            def _inject_one(serial):
+                try:
+                    results[serial] = wifi_inject(serial, ssid, password, hidden)
+                except Exception as e:
+                    results[serial] = {"ok": False, "serial": serial, "ssid": ssid,
+                                       "saved": False, "connected": False,
+                                       "log": [], "error": str(e)}
+
+            ths = [threading.Thread(target=_inject_one, args=(s,)) for s in serials]
+            for t in ths:
+                t.start()
+            for t in ths:
+                t.join(150)   # 单台最多等 150s，避免前端一直转圈
+            ok_n = sum(1 for r in results.values() if r.get("ok"))
+            self._send(200, {"ok": True, "ssid": ssid, "total": len(serials),
+                             "ok_count": ok_n, "results": results})
             return
         if self.path.split("?")[0] == "/api/wifi_debug":
             data = self._read_body()
