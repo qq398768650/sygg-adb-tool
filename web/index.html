@@ -621,14 +621,15 @@
   <div class="col-main">
   <div class="panel">
     <h2><span class="n">1</span>选择 APK</h2>
-    <div class="dlbox" id="dlBox">
+    <!-- 在线下载/发布需要访问密钥，默认隐藏；本机用 ?adv=1 打开（发给别人的版本看不到这个入口） -->
+    <div class="dlbox" id="dlBox" style="display:none">
       <button class="dlhead" id="dlHead" type="button">
         <span>↓ 从链接下载安装包</span><span class="caret">▸</span>
       </button>
       <div class="dlbody" id="dlBody" style="display:none">
         <div class="row">
           <input type="password" id="apiKey" autocomplete="off"
-                 placeholder="访问密钥（填一次即可，会记住）" style="flex:1">
+                 placeholder="访问密钥（仅本次会话有效，刷新即清空）" style="flex:1">
         </div>
         <div class="row">
           <select id="pkgSel" class="dlsel"><option>输入访问密钥后列出景点安装包</option></select>
@@ -1141,7 +1142,6 @@ async function pkgLoad() {
     }
     const arr = (r.packages || []).filter(p => p && p.url);
     pkgList = arr;
-    if (key) localStorage.setItem('arApiKey', key);
     sel.innerHTML = '';
     if (!arr.length) {
       sel.innerHTML = '<option>后台还没有已发布的安装包</option>';
@@ -2748,16 +2748,15 @@ loadVersion();
   } catch (e) {}
 })();
 
-// 从链接下载安装包
-$('apiKey').value = localStorage.getItem('arApiKey') || '';
-// 密钥实时同步到 localStorage：清空输入框就必须真的删掉，否则刷新又被旧值填回来
-$('apiKey').oninput = () => {
-  const v = ($('apiKey').value || '').trim();
-  if (v) localStorage.setItem('arApiKey', v);
-  else localStorage.removeItem('arApiKey');
-};
+// 从链接下载安装包（需要访问密钥）
+// 密钥只活在当前页面内存里：不写 localStorage，刷新/关页面就没了。
+// 历史版本把密钥明文存过 localStorage，这里顺手清掉。
+$('apiKey').value = '';
+localStorage.removeItem('arApiKey');
 $('apiKey').onchange = () => pkgLoad();
 $('apiKey').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pkgLoad(); } };
+// 整个下载/发布区块默认隐藏，只有本机带 ?adv=1 才露出来
+$('dlBox').style.display = new URLSearchParams(location.search).get('adv') === '1' ? '' : 'none';
 $('dlHead').onclick = () => dlToggle();
 $('pkgDl').onclick = pkgDownload;
 $('dlRetry').onclick = () => pkgDownload();
