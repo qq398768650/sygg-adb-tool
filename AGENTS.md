@@ -31,7 +31,6 @@ Windows 上的 **ADB 批量安装工具**：
 | `version.json` | 当前版本号 + 每个受管文件的 MD5 |
 | `platform-tools/adb.exe` | adb |
 | `scrcpy/` | 精简版 scrcpy 3.3.4（8 个文件，约 10MB） |
-| `fsa/` | 本地 fsa 备用目录（见 §6.3） |
 
 ---
 
