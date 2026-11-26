@@ -244,14 +244,16 @@ public class MainActivity extends Activity {
         toast("正在授权，请稍等…");
         new Thread(new Runnable() {
             @Override public void run() {
-                if (!AdbLocal.available()) {
+                final boolean owner = Grants.isDeviceOwner(MainActivity.this);
+                if (!owner && !AdbLocal.available()) {
                     runOnUiThread(new Runnable() {
                         @Override public void run() {
                             new AlertDialog.Builder(MainActivity.this)
                                     .setTitle("一键授权")
-                                    .setMessage("本机的调试端口（127.0.0.1:5555）没有开启。\n\n"
-                                            + "请先用电脑的「沈阳故宫批量安装工具」连一次本设备，安装工具会自动开启这个端口；"
-                                            + "之后就能脱离电脑一键授权。")
+                                    .setMessage("本机既不是 Device Owner，调试端口（127.0.0.1:5555）也没开。\n\n"
+                                            + "两条路选一条：\n"
+                                            + "① 用电脑的「沈阳故宫批量安装工具」点应用行的绿色锁按钮，把本程序设为 Device Owner（一次到位，以后不用电脑）；\n"
+                                            + "② 用安装工具连一次本设备（会自动开启调试端口）。")
                                     .setPositiveButton("知道了", null)
                                     .show();
                         }

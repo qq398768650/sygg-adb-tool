@@ -293,6 +293,14 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   只对 `PROTECTION_DANGEROUS` 的权限拼 `pm grant`，再补
   `appops set … MANAGE_EXTERNAL_STORAGE / REQUEST_INSTALL_PACKAGES / SYSTEM_ALERT_WINDOW / POST_NOTIFICATION allow`。
 - 入口：主菜单「一键授权」（`MENU_GRANT`，`MainActivity.oneKeyGrant()` → 后台线程 → 结果弹框「已授权 N/M 个应用」）；
+- **两条路，优先第一条**：
+  1. **本程序是 Device Owner**（装机工具绿色锁按钮设过 / `dpm set-device-owner`）→ 直接
+     `DevicePolicyManager.setPermissionGrantState(admin, pkg, perm, PERMISSION_GRANT_STATE_GRANTED)`，
+     不依赖任何端口，`Grants.isDeviceOwner()` 判断，`scenicPackages()` 也改用 `getInstalledPackages()` 列包。授予后权限是 `POLICY_FIXED`，用户改不了（业务设备正是要这个）。
+  2. 不是 DO → 走本地 adbd（`127.0.0.1:5555`）执行 `pm grant`。
+  `doGrantAll()` 的前置检查是 `if (!owner && !AdbLocal.available())` —— **只查 adb 不看 DO 就会误报「调试端口没开」**（踩过）。
+- appops（`MANAGE_EXTERNAL_STORAGE` / `REQUEST_INSTALL_PACKAGES` / `SYSTEM_ALERT_WINDOW` / `POST_NOTIFICATION`）
+  没有 DO 用的 API，两条路都靠 adb；拿不到 adb 也不影响运行时权限已授成功。
   `UpdateActivity` 在 `PackageInstaller.STATUS_SUCCESS` 后自动补权限，但**只在「新安装」时补**（安装前 `installingIsNew = p.localVc < 0`）：
   新装 → 状态行「权限已自动授予」；覆盖安装 → 「权限沿用原有授权」，不再重复 `pm grant`（系统本来就保留授权，重授纯属浪费一次 adb 往返）。
 - **前提**：设备 5555 有 adbd 在听。`ensure_local_adb_port()`（`web/server.py`，在 `install_one` / `plain_install_one`
@@ -305,6 +313,25 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   本机版本高于后台（例如沈阳故宫本机 v54 / 后台 v41）显示「⬆ 本机版本更新」，不再误标「已最新」。
 - ⚠️ **安全**：`persist.adb.tcp.port=5555` + `ro.adb.secure` 不认证 = 同网段任何人都能 `adb connect` 拿到 shell
   （可装应用、读存储）。现场设备必须放在可信内网；要暴露到外网就得关掉这个属性，或用 iptables 只放行 `lo`。
+
+---
+
+### 6.8.4 把安装包更新助手设为 Device Owner
+
+DO 能带来两件事：**静默装业务包**（不再弹系统「要安装此应用吗」）+ **直接授权限**（不依赖 5555 调试端口）。
+
+- 前提：App 里必须有 `DeviceAdminReceiver`，否则 `dpm set-device-owner` 直接报
+  `Error: Unknown admin: ComponentInfo{com.hsy.devupdate/com.hsy.devupdate.ApkDeviceAdmin}`。
+  已经补好：`src/com/hsy/devupdate/ApkDeviceAdmin.java`（空实现）+ `res/xml/device_admin.xml`（只放 `force-lock` 占位）
+  + manifest 里 `<receiver android:name=".ApkDeviceAdmin" android:permission="android.permission.BIND_DEVICE_ADMIN" android:exported="true">`
+  带 `android.app.device_admin` meta-data 和 `DEVICE_ADMIN_ENABLED` intent-filter。
+- 设置方式二选一：装机工具设备卡片里「应用下拉选中 com.hsy.devupdate → 绿色锁按钮」，或
+  `adb shell dpm set-device-owner com.hsy.devupdate/.ApkDeviceAdmin`（成功输出 `Success: Device owner set to package ...`）。
+- 校验：`adb shell dumpsys device_policy | head -8` 里 `Device Owner: package=com.hsy.devupdate`。
+- ⚠️ **DO 一旦设上就卸不掉**（`adb uninstall` 会被拒），撤销只能 App 自己调 `clearDeviceOwnerApp()` 或恢复出厂。
+  设备上原本被 sygg 占着 DO 的，必须先清掉（工具点「解锁」，会硬重启）。
+- 实测（DR301V010320250726001506 / Android 11）：设成功后关掉 5555，点「一键授权」→ logcat `I Grants: grantAll total=2 viaOwner=true`，
+  `com.hsy.xidi` 的 CAMERA / RECORD_AUDIO 变 `granted=true, flags=[POLICY_FIXED]`。
 
 ---
 

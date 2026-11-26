@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 设备管理员策略声明。设成 Device Owner 只是要它的管理能力，不需要限密码、锁屏等策略，
+     所以这里放一个不影响使用的占位项。 -->
+<device-admin xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-policies>
+        <force-lock />
+    </uses-policies>
+</device-admin>
