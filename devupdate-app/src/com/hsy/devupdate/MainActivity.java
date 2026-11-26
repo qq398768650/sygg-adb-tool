@@ -4,12 +4,15 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.app.PendingIntent;
+import android.app.admin.DevicePolicyManager;
 import android.app.role.RoleManager;
 import android.content.BroadcastReceiver;
+import android.content.ComponentName;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.IntentFilter;
+import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.net.ConnectivityManager;
@@ -61,6 +64,7 @@ public class MainActivity extends Activity {
     private static final int MENU_ABOUT = 3;
     private static final int MENU_HOME = 4;
     private static final int MENU_GRANT = 5;
+    private static final int MENU_DO = 6;
     private static final int REQ_LOC = 21;
     private static final int REQ_HOME = 22;
     private static final int SELF_REQ = 91;
@@ -135,6 +139,7 @@ public class MainActivity extends Activity {
         items.add(new Item(MENU_WIFI, "连接 WiFi", wifiSub()));
         items.add(new Item(MENU_UPDATE, "检查更新", "从发布后台获取最新安装包"));
         items.add(new Item(MENU_GRANT, "一键授权", grantSub()));
+        items.add(new Item(MENU_DO, "设备管理员", doSub()));
         items.add(new Item(MENU_HOME, "默认桌面", homeSub()));
         if (updateReady) {
             items.add(new Item(MENU_ABOUT, "发现新版本 v" + newVn, "下载完成，点这里安装").badge());
@@ -145,6 +150,67 @@ public class MainActivity extends Activity {
         }
         adapter.notifyDataSetChanged();
         if (menu.getChildCount() > 0) menu.requestFocus();
+    }
+
+    // ================= 设备管理员（Device Owner）=================
+    /** 当前设备 Device Owner 的包名，没有就是空串。
+     *  getDeviceOwnerComponentOnAnyUser() 是 @hide，只能用 isDeviceOwnerApp 逐个包问。 */
+    private String doPkg() {
+        try {
+            DevicePolicyManager dpm = (DevicePolicyManager) getSystemService(DEVICE_POLICY_SERVICE);
+            if (dpm == null) return "";
+            if (dpm.isDeviceOwnerApp(getPackageName())) return getPackageName();
+            for (PackageInfo pi : getPackageManager().getInstalledPackages(0)) {
+                if (pi.packageName != null && dpm.isDeviceOwnerApp(pi.packageName)) {
+                    return pi.packageName;
+                }
+            }
+        } catch (Exception e) {
+            return "";
+        }
+        return "";
+    }
+
+    /** 包名换成应用名，取不到返回空串 */
+    private String appLabel(String pkg) {
+        try {
+            PackageManager pm = getPackageManager();
+            return pm.getApplicationLabel(pm.getApplicationInfo(pkg, 0)).toString();
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    private String doSub() {
+        String pkg = doPkg();
+        if (pkg.isEmpty()) return "未设置，点一下看为什么要设";
+        if (pkg.equals(getPackageName())) return "本程序 · " + pkg;
+        String label = appLabel(pkg);
+        return (label.isEmpty() ? "" : label + " · ") + pkg;
+    }
+
+    private void showDoInfo() {
+        String pkg = doPkg();
+        String msg;
+        if (pkg.isEmpty()) {
+            msg = "本机还没有 Device Owner。\n\n"
+                    + "用电脑的「沈阳故宫批量安装工具」：设备卡片里下拉选中「安装包更新」，点绿色的锁按钮即可。\n\n"
+                    + "设上之后：装业务包不再弹系统确认框，一键授权也不用开调试端口。";
+        } else if (pkg.equals(getPackageName())) {
+            msg = "当前是本程序：\n" + pkg + "\n\n"
+                    + "装业务包是静默的，一键授权也不用调试端口。\n"
+                    + "注意：设了 Device Owner 就卸载不掉，除非恢复出厂。";
+        } else {
+            String label = appLabel(pkg);
+            msg = "当前占用者：\n" + (label.isEmpty() ? "" : label + "\n") + pkg + "\n\n"
+                    + "一台设备只能有一个 Device Owner。要换成本程序，"
+                    + "得先用装机工具点「解锁」清掉它（会重启设备），再点绿色锁按钮。";
+        }
+        new AlertDialog.Builder(this)
+                .setTitle("设备管理员")
+                .setMessage(msg)
+                .setPositiveButton("知道了", null)
+                .show();
     }
 
     /** 已经连上 WiFi 就把名字显示出来，没连才提示去扫热点。 */
@@ -296,6 +362,9 @@ public class MainActivity extends Activity {
                 break;
             case MENU_GRANT:
                 oneKeyGrant();
+                break;
+            case MENU_DO:
+                showDoInfo();
                 break;
             case MENU_ABOUT:
                 if (updateReady && readyApk != null && readyApk.exists()) {
