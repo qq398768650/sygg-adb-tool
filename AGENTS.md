@@ -286,6 +286,8 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   探测要放后台线程再回 UI 提示。
 - 实测（DR301V010320250726001506）：`pm revoke` 掉西递的 CAMERA / RECORD_AUDIO / 位置后点「一键授权」→
   「已授权 2 / 2 个应用」，`dumpsys package com.hsy.xidi` 里四个权限全部 `granted=true`。
+- 列表排序（`sortItems()`）：**已安装的按 `PackageInfo.lastUpdateTime` 倒序排最前**（刚装完的排第一），未安装的按「可更新 → 无发布」再按内置顺序；
+  本机版本高于后台（例如沈阳故宫本机 v54 / 后台 v41）显示「⬆ 本机版本更新」，不再误标「已最新」。
 - ⚠️ **安全**：`persist.adb.tcp.port=5555` + `ro.adb.secure` 不认证 = 同网段任何人都能 `adb connect` 拿到 shell
   （可装应用、读存储）。现场设备必须放在可信内网；要暴露到外网就得关掉这个属性，或用 iptables 只放行 `lo`。
 

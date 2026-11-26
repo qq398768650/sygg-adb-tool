@@ -145,6 +145,21 @@ $ErrorActionPreference = 'Continue'
 if ($LASTEXITCODE -ne 0) { Write-Host '[release] 创建 Release 失败（检查 Clash/网络后可用 gh release create 重试）' -ForegroundColor Yellow }
 $ErrorActionPreference = $prevEap
 
+# 设备更新助手（devupdate-app/）的自更新包：挂到同一个 Release，
+# App 里点「关于」会拉 releases/latest/download/devupdate.json 比对版本
+$apkPath = Join-Path $PSScriptRoot 'devupdate-app\DevUpdate.apk'
+$jsonPath = Join-Path $PSScriptRoot 'devupdate-app\devupdate.json'
+if ((Test-Path $apkPath) -and (Test-Path $jsonPath)) {
+    Write-Host '[release] 上传设备更新助手（自更新包）...' -ForegroundColor Cyan
+    $prevEap2 = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    & gh release upload $tag $apkPath $jsonPath --clobber --repo $repoSlug 2>&1 | Out-Host
+    if ($LASTEXITCODE -ne 0) { Write-Host '[release] 上传 DevUpdate.apk 失败（App 自更新会继续用旧版）' -ForegroundColor Yellow }
+    $ErrorActionPreference = $prevEap2
+} else {
+    Write-Host '[release] 没找到 devupdate-app/DevUpdate.apk，跳过设备更新助手自更新包' -ForegroundColor DarkGray
+}
+
 # 让 jsDelivr 立即刷新缓存（否则镜像可能最长 12 小时才更新）
 Write-Host '[release] 刷新 jsDelivr 缓存 ...' -ForegroundColor Cyan
 $curl = Join-Path $env:SystemRoot 'System32\curl.exe'

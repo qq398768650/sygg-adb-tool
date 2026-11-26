@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#000000">
+
+    <SurfaceView
+        android:id="@+id/scan_surface"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <com.hsy.devupdate.ScanOverlay
+        android:id="@+id/scan_overlay"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="top"
+        android:background="#B3000000"
+        android:paddingLeft="36dp"
+        android:paddingRight="36dp"
+        android:paddingTop="16dp"
+        android:paddingBottom="16dp"
+        android:text="扫码连接 WiFi"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="#F9FAFB" />
+
+    <TextView
+        android:id="@+id/scan_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="#B3000000"
+        android:paddingLeft="36dp"
+        android:paddingRight="36dp"
+        android:paddingTop="18dp"
+        android:paddingBottom="24dp"
+        android:lineSpacingExtra="4dp"
+        android:text="把 WiFi 二维码放进框内（按返回键退出）"
+        android:textSize="20sp"
+        android:textColor="#E5E7EB" />
+
+</FrameLayout>

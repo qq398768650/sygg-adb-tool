@@ -45,4 +45,10 @@ _restart_helper.log
 .fsa_meta.json
 
 # ==== 设备端 Android 工程（独立分发，不进安装工具仓库）====
-devupdate-app/
+# 设备更新助手：源码/APK/清单进仓库（APK 用来给设备自更新，jsDelivr 直接拉），
+# 但签名文件、构建中间产物和工具生成的 class 不能进
+devupdate-app/build/
+devupdate-app/devupdate.jks
+devupdate-app/*.idsig
+devupdate-app/tools/*.class
+!devupdate-app/DevUpdate.apk

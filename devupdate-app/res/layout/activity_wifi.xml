@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:padding="36dp"
+    android:background="#0B0F17">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="连接 WiFi"
+            android:textSize="30sp"
+            android:textStyle="bold"
+            android:textColor="#F9FAFB" />
+
+        <Button
+            android:id="@+id/scan_qr"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginRight="12dp"
+            android:text="扫码连接"
+            android:textSize="17sp"
+            android:focusable="true"
+            android:background="@drawable/btn_bg"
+            android:paddingLeft="22dp"
+            android:paddingRight="22dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:textColor="#F3F4F6" />
+
+        <Button
+            android:id="@+id/rescan"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="重新扫描"
+            android:textSize="17sp"
+            android:focusable="true"
+            android:background="@drawable/item_bg"
+            android:paddingLeft="22dp"
+            android:paddingRight="22dp"
+            android:paddingTop="10dp"
+            android:paddingBottom="10dp"
+            android:textColor="#E5E7EB" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/wifi_status"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="正在扫描…"
+        android:textSize="16sp"
+        android:textColor="#9CA3AF" />
+
+    <ListView
+        android:id="@+id/wifi_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="18dp"
+        android:divider="@null"
+        android:dividerHeight="10dp"
+        android:listSelector="@android:color/transparent"
+        android:focusable="true" />
+
+</LinearLayout>
