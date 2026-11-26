@@ -1463,6 +1463,10 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         result_ok, _g, _u, _f = grant_permissions(serial, pkg, declared_perms)
         step(serial, "grant", result_ok)
 
+        # 让设备长期保留本地授权通道（设备上的「安装包更新」一键授权要用）
+        okp, msgp = ensure_local_adb_port(serial)
+        log(serial, ("       " if okp else "       [WARN] ") + "本地授权端口: " + msgp)
+
         # ---- Device Owner（APK 自动更新 + 静默安装的前提）----
         # 卸载重装会丢这个身份，所以每次装机都重设一次；
         # 若不是 Device Owner，App 内 PermissionSelfHeal 会直接跳过（它靠 DPMS 补权限）。
@@ -1557,6 +1561,8 @@ def plain_install_one(serial, apk, grant_perms=False):
         if rc == 0 and "success" in text.lower():
             log(serial, "       [普通安装] Install succeeded.")
             step(serial, "plain_install", True)
+            okp, msgp = ensure_local_adb_port(serial)
+            log(serial, ("       " if okp else "       [WARN] ") + "本地授权端口: " + msgp)
             if grant_perms:
                 det_pkg, _det_act = parse_apk_manifest(apk)
                 if det_pkg:
@@ -2557,6 +2563,28 @@ def all_batteries(serials=None):
         result.setdefault(s, {"serial": s, "level": None, "charging": False,
                               "ok": False, "error": "读取超时"})
     return result
+
+
+LOCAL_ADB_PORT = 5555
+
+
+def ensure_local_adb_port(serial, port=LOCAL_ADB_PORT):
+    """让设备开机自动监听 adb 端口，供设备上「安装包更新」的一键授权使用。
+
+    只写 persist.adb.tcp.port（重启后 adbd 自动监听），不在这里重启 adbd，
+    避免打断安装流程；已经有值就直接跳过。返回 (ok, msg)。
+    """
+    try:
+        cur = adb_shell(serial, ["getprop", "persist.adb.tcp.port"], timeout=15)[1]
+        if (cur or "").strip() == str(port):
+            return True, "persist.adb.tcp.port 已是 %s" % port
+        adb_shell(serial, ["setprop", "persist.adb.tcp.port", str(port)], timeout=15)
+        now = adb_shell(serial, ["getprop", "persist.adb.tcp.port"], timeout=15)[1]
+        if (now or "").strip() == str(port):
+            return True, "已设置 persist.adb.tcp.port=%s（重启后自动开启）" % port
+        return False, "设置 persist.adb.tcp.port 失败"
+    except Exception as e:
+        return False, str(e)
 
 
 def device_ip(serial):

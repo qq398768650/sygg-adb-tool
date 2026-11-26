@@ -209,6 +209,12 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   - JDK 用 `H:\GitWork2026\Tools\jdk17\jdk-17.0.21.1+2`
   - build-tools 必须用 **36.0.0**（30.0.3 的 `d8.bat` / `apksigner.bat` 带 `-Djava.ext.dirs`，JDK 17 上直接报 `Could not create the Java Virtual Machine`）
   - 流程：`aapt2 compile/link` → `javac` → `d8` → `jar uf` → `zipalign` → `apksigner`；签名 keystore `devupdate-app/devupdate.jks`（`123456` / alias `devupdate`），首次自动生成
+- **图标**用代码画，不依赖生图服务：`devupdate-app/tools/MakeIcon.java`（Java2D）
+  `javac -encoding UTF-8 -d tools tools/MakeIcon.java && java -cp tools MakeIcon res`
+  → 输出 `res/mipmap-{m,h,x,xh,xxh,xxxh}dpi/` 下的 `ic_launcher.png`（完整圆角图标）、`ic_launcher_fg.png` / `ic_launcher_bg.png`（自适应图标两层，108dp 画布，前景内容占 66%）。
+  图形：紫色渐变底（#7C3AED→#4C1D95→#1E1B4B）+ 白色中式飞檐 + 向下箭头 + U 形托盘。
+  自适应图标声明在 `res/mipmap-anydpi-v26/ic_launcher.xml`；`AndroidManifest.xml` 的 `android:icon="@mipmap/ic_launcher"`。
+  **改图形只改 MakeIcon 里的坐标重跑，不要手改 PNG**（多密度会不同步）。
 - **界面是 D-pad 导航**：设备没有触摸屏，只有 `adc-keys`（上下左右 + KEY_ENTER）和 `gpio-keys`（BACK / 音量）。
   列表项高亮用 `res/drawable/item_bg.xml` 的 **`state_selected`**（用 `state_focused` 不会亮）。
 - **连 WiFi**：扫描（`startScan` + SCAN_RESULTS，需 ACCESS_FINE_LOCATION）→ 选热点 → D-pad 软键盘输密码 →
@@ -234,6 +240,16 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - **密码输错不能卡死**：`PassActivity` 连接中会禁用并变灰键盘，主按钮变「✖ 取消」（底部按钮排第一个），
   BACK 随时取消；轮询 20 次 × 2 秒 = **40 秒**仍没连上就提示「40 秒内没连上。可能密码不对、不在范围内，或热点有客户端隔离」并恢复可编辑。
   另外如果目标 SSID 就是当前已连网络，直接提示「当前已经连在…上」——否则输错密码也会被误判成功（旧 SSID 没变）。
+- **扫码连接 WiFi**：WiFi 页 header 的「扫码连接」→ `ScanActivity`，相机预览 + ZXing 解 `WIFI:T:WPA;S:ssid;P:pass;;` 二维码，识别到直接走 `WifiConnect`（与手输密码共用同一套连接逻辑，40 秒超时、BACK 可取消）。
+  - 依赖 `devupdate-app/libs/core-3.5.3.jar`（ZXing core）。**build.sh 里 `javac -classpath` 和 `d8` 的输入都要带上它**，只加 javac 会编过但运行时 `NoClassDefFoundError`。
+  - 取景框是自绘的 `ScanOverlay`：中间正方形亮窗（边长 = 屏幕短边 × `FRAME_RATIO 0.56`）、四周 `0xB0000000` 压暗、四角白色 L 线。
+    **解码只取框内 ROI**（`updateRoi()` 把控件坐标按 `frameW/viewW` 换算成预览帧坐标），框内没有码就什么都不做，跟常见扫码 App 的行为一致。
+    `activity_scan.xml` 里 `ScanOverlay` 必须放在 `SurfaceView` 之后、标题/状态 `TextView` 之前，否则遮罩会盖住文字。
+  - 相机三个坑：① `Camera.open()` 要 1~3 秒，**必须放后台线程**（主线程会 ANR，`WifiActivity ... Waited 5000ms for FocusEvent`）；
+    ② 预览分辨率按 `{1280*720, 960*540, 640*480, 320*240}` 优先选，选 1600x1200 时外接摄像头只有 **0.097 FPS**，选 1280x720 才 31.7 FPS；
+    ③ `setDisplayOrientation(0)`，设 180 画面会倒。
+  - 连接失败会 `handled = false` 并重开相机，用户不用退出重进。
+  - 实测：相机 1280x720 / 31.7 FPS 正常取景，框内对准二维码能识别并进入「识别到 X，正在连接…」。
 - **踩过的坑**：① 后台线程直接改 UI 会抛 `Only the original thread that created a view hierarchy can touch its views`，所有 `setStatus` / `progress` 必须 `ui.post`；② 下载中断后重试要先比对文件大小，完整则跳过重下。
 
 #### 6.8.1 差分更新（只下变化的块）
@@ -251,6 +267,27 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   `0x9E3779B185EBCA87L / 0xC2B2AE3D27D4EB4FL / 0x165667B19E3779F9L / 0x85EBCA77C2B2AE63L / 0x27D4EB2F165667C5L`。
   自检办法：`xxh64("")=ef46db3751d8e999`、`xxh64("a")=d24ec4f1a98c6e5b`、`xxh64("abc")=44bc2cf5ad770999`。
 - 实测（2026-11-24，宋潮不夜城 v35→v36，整包 720,181,102 字节）：本地复用 **10447 块**，只下载 **23,279,708 字节（22.2 MB，约 3.2%）**，22 秒完成合成，sha256 通过并正常安装到 v36；榆次县衙 v1→v2（400 MB）同样成功。
+
+#### 6.8.2 一键授权（装完自动补权限）
+
+设备不是 Device Owner（DO 被业务包占着），`PackageInstaller` 装完的包**运行时权限全是未授予**，
+而设备只有遥控器方向键，逐个点系统权限弹框很难操作。做法是让 App 用「本地 adbd」的身份去授权：
+
+- `AdbLocal.java`：极简 ADB 客户端，socket 连 `127.0.0.1:5555` → 发 `CNXN`（`host::\0`）→ `OPEN shell:命令` → 收 `WRTE`。
+  设备 `ro.adb.secure` 未设置（不认证），不需要密钥；收到 `AUTH` 包就返回 `null` 表示不可用。
+- `Grants.java`：`scenicPackages()` 用 `pm list packages` 取 `com.hsy.*`；`grant(ctx, pkg)` 读 `PackageInfo.requestedPermissions`，
+  只对 `PROTECTION_DANGEROUS` 的权限拼 `pm grant`，再补
+  `appops set … MANAGE_EXTERNAL_STORAGE / REQUEST_INSTALL_PACKAGES / SYSTEM_ALERT_WINDOW / POST_NOTIFICATION allow`。
+- 入口：主菜单「一键授权」（`MENU_GRANT`，`MainActivity.oneKeyGrant()` → 后台线程 → 结果弹框「已授权 N/M 个应用」）；
+  `UpdateActivity` 在 `PackageInstaller.STATUS_SUCCESS` 后自动对刚装的包跑一次，状态行追加「权限已自动授予」。
+- **前提**：设备 5555 有 adbd 在听。`ensure_local_adb_port()`（`web/server.py`，在 `install_one` / `plain_install_one`
+  安装成功后调用）写 `persist.adb.tcp.port=5555`，重启后自动生效；要立刻生效就在设备卡片点「无线」（`adb tcpip 5555`）。
+- **坑**：`AdbLocal.available()` 是网络操作，**不能在主线程调**（`NetworkOnMainThreadException` 直接把 App 崩掉），
+  探测要放后台线程再回 UI 提示。
+- 实测（DR301V010320250726001506）：`pm revoke` 掉西递的 CAMERA / RECORD_AUDIO / 位置后点「一键授权」→
+  「已授权 2 / 2 个应用」，`dumpsys package com.hsy.xidi` 里四个权限全部 `granted=true`。
+- ⚠️ **安全**：`persist.adb.tcp.port=5555` + `ro.adb.secure` 不认证 = 同网段任何人都能 `adb connect` 拿到 shell
+  （可装应用、读存储）。现场设备必须放在可信内网；要暴露到外网就得关掉这个属性，或用 iptables 只放行 `lo`。
 
 ---
 
