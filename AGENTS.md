@@ -162,9 +162,14 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 `REQUEST_INSTALL_PACKAGES` 就是系统设置里的「安装未知应用」，不开的话 App 内自更新/差分更新装不进去。
 
 ### 6.3 fsa 数据
-优先级：**APK 内置 `assets/aikit/fsa/`** → 本地 `fsa/`（仅当 `.fsa_meta.json` 记录的归属 APK 与当前 APK 一致）→ 都没有则告警跳过。
 
-**设备只认 `.txt`**：APK 解包、zip/文件夹上传、推送三处都会过滤非 txt 文件（扩展名大小写不敏感），并在面板/安装日志提示被忽略的文件。别放宽这条——混入其他格式会让 App 读取异常。
+**现状（2026-11-26 起）：fsa 一律随 APK 内置，`assets/aikit/fsa/` 是唯一正式来源，面板不再有上传入口**。
+`/api/upload_fsa`（zip）与 `/api/upload_fsa_file`（文件夹直传）两个路由已删除，前端面板只剩一个只读状态行（`GET /api/fsa_status`）。
+
+优先级：**APK 内置 `assets/aikit/fsa/`** → 本地 `fsa/` 残留（仅当 `.fsa_meta.json` 记录的归属 APK 与当前 APK 一致）→ 都没有则告警跳过。
+本地 `fsa/` 只是为了兼容老现场留下的目录，不要指望它更新；新包必须在发布流程里把 fsa 打进 APK。
+
+**设备只认 `.txt`**：APK 解包与推送两处都会过滤非 txt 文件（扩展名大小写不敏感），并在面板/安装日志提示被忽略的文件。别放宽这条——混入其他格式会让 App 读取异常。
 
 - `fsa_in_apk_report(apk)` / `extract_fsa_from_apk(apk)`：扫描 APK 内置 fsa，只解包 `.txt` 到 `.fsa_from_apk/<apk名>/fsa/`
 - `fsa_bad_files(dir)`：列出目录内非 `.txt` 文件（`.meta` 除外）

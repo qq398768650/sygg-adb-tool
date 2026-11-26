@@ -1,10 +1,10 @@
 {
-  "version": "1.1.3",
-  "notes": "设备卡片显示当前 Device Owner（DO 标签 + 包名）；更新助手主页新增「设备管理员」",
+  "version": "1.1.4",
+  "notes": "fsa 数据包改为随 APK 内置，删掉 fsa 上传接口（zip/文件夹直传），面板只显示内置状态",
   "files": {
-    "launcher.exe": "50c9f0f858c506635adf240993002aa4",
-    "web/server.py": "bd0e130c73ed9d9bc634380f858ae3a5",
-    "web/index.html": "3b9669047fd4e7dae0041681935d2f52",
+    "launcher.exe": "2f2d83ccca2f6a4e35992628cbe40002",
+    "web/server.py": "35eb4631c6dfbd2648b72187ba643a4d",
+    "web/index.html": "70c14ead54fe1b36becfd89c29be10a2",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
