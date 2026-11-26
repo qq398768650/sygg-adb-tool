@@ -293,7 +293,8 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   只对 `PROTECTION_DANGEROUS` 的权限拼 `pm grant`，再补
   `appops set … MANAGE_EXTERNAL_STORAGE / REQUEST_INSTALL_PACKAGES / SYSTEM_ALERT_WINDOW / POST_NOTIFICATION allow`。
 - 入口：主菜单「一键授权」（`MENU_GRANT`，`MainActivity.oneKeyGrant()` → 后台线程 → 结果弹框「已授权 N/M 个应用」）；
-  `UpdateActivity` 在 `PackageInstaller.STATUS_SUCCESS` 后自动对刚装的包跑一次，状态行追加「权限已自动授予」。
+  `UpdateActivity` 在 `PackageInstaller.STATUS_SUCCESS` 后自动补权限，但**只在「新安装」时补**（安装前 `installingIsNew = p.localVc < 0`）：
+  新装 → 状态行「权限已自动授予」；覆盖安装 → 「权限沿用原有授权」，不再重复 `pm grant`（系统本来就保留授权，重授纯属浪费一次 adb 往返）。
 - **前提**：设备 5555 有 adbd 在听。`ensure_local_adb_port()`（`web/server.py`，在 `install_one` / `plain_install_one`
   安装成功后调用）写 `persist.adb.tcp.port=5555`，重启后自动生效；要立刻生效就在设备卡片点「无线」（`adb tcpip 5555`）。
 - **坑**：`AdbLocal.available()` 是网络操作，**不能在主线程调**（`NetworkOnMainThreadException` 直接把 App 崩掉），
