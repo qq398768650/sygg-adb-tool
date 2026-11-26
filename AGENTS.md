@@ -268,7 +268,21 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   自检办法：`xxh64("")=ef46db3751d8e999`、`xxh64("a")=d24ec4f1a98c6e5b`、`xxh64("abc")=44bc2cf5ad770999`。
 - 实测（2026-11-24，宋潮不夜城 v35→v36，整包 720,181,102 字节）：本地复用 **10447 块**，只下载 **23,279,708 字节（22.2 MB，约 3.2%）**，22 秒完成合成，sha256 通过并正常安装到 v36；榆次县衙 v1→v2（400 MB）同样成功。
 
-#### 6.8.2 一键授权（装完自动补权限）
+### 6.8.2 安装包更新助手自更新（点「关于」一键升级）
+
+- 版本号在 `devupdate-app/AndroidManifest.xml` 的 `android:versionCode` / `versionName`，**每次改代码都要 +1**，否则设备看不出有新版。
+- `build.sh` 末尾用 manifest 版本号 + APK 大小 + sha256 生成 `devupdate-app/devupdate.json`。
+- APK、清单、源码都进仓库（`.gitignore` 里 `*.apk` 对 `devupdate-app/DevUpdate.apk` 开了例外），设备走 **jsDelivr** 拉：
+  `https://cdn.jsdelivr.net/gh/qq398768650/sygg-adb-tool@main/devupdate-app/`
+- 发新版流程：改版本号 → `bash devupdate-app/build.sh` → `git add -f devupdate-app/DevUpdate.apk devupdate-app/devupdate.json` → commit/push → 刷缓存
+  `curl "https://purge.jsdelivr.net/gh/qq398768650/sygg-adb-tool@main/devupdate-app/devupdate.json"`（APK 同理）。不发 launcher 版本也行。
+- App 侧：启动 `autoCheckUpdate(false)` 静默查 → 有新版本**直接后台下载**（不弹框）→ 下完「关于」变成「发现新版本 vX」+ 红色「新版本」气泡（`res/layout/item_menu.xml` 的 `it_badge`）→ 点一下直接 `installSelf()`。
+- 下载：断点续传（`Range` + 206）、多镜像兜底、sha256 校验、`readTimeout` 120s；状态存在 `self_update/DevUpdate.apk`。
+- **镜像坑**：现场这台设备的网络把 `gh-proxy.com` DNS 到 127.0.0.1（连不上），`raw.githubusercontent.com` 也不通，只有 jsDelivr 稳，所以 jsDelivr 排第一。
+- **D-pad 坑**：系统安装框默认焦点在「取消」，必须**按右键**再按确认才是「安装」，否则回调 `INSTALL_FAILED_ABORTED: User rejected permissions`（status=3）。
+- `release.ps1` 发版时也会把 APK/json 传到 Release 资产（兜底镜像 `releases/latest/download/`）。
+
+### 6.8.3 一键授权（装完自动补权限）
 
 设备不是 Device Owner（DO 被业务包占着），`PackageInstaller` 装完的包**运行时权限全是未授予**，
 而设备只有遥控器方向键，逐个点系统权限弹框很难操作。做法是让 App 用「本地 adbd」的身份去授权：
