@@ -2486,6 +2486,54 @@ def list_devices():
     return [serial for serial, state in list_devices_detail() if state == "device"]
 
 
+def device_owner_pkg(serial):
+    """读设备当前 Device Owner 的包名，没有就返回空串。
+
+    解析 `dumpsys device_policy` 开头那段（Android 11 没有 `dpm list-owners`）：
+        Device Owner:
+          admin=ComponentInfo{com.hsy.devupdate/com.hsy.devupdate.ApkDeviceAdmin}
+          name=
+          package=com.hsy.devupdate
+    """
+    try:
+        rc, out = adb_shell(serial, ["shell", "dumpsys", "device_policy"], timeout=20)
+        lines = (out or "").splitlines()
+        for i, ln in enumerate(lines):
+            if ln.strip().startswith("Device Owner:"):
+                for nxt in lines[i + 1:i + 8]:
+                    t = nxt.strip()
+                    if not t:
+                        continue
+                    if t.startswith("package="):
+                        return t.split("=", 1)[1].strip()
+                    if t.startswith("Enabled"):
+                        break
+                return ""
+    except Exception:
+        pass
+    return ""
+
+
+def all_device_owners(serials=None):
+    """并行读多台设备的 Device Owner 包名，返回 {serial: pkg}（没有为空串）。"""
+    devs = list(serials) if serials else list_devices()
+    result, guard = {}, threading.Lock()
+
+    def work(s):
+        pkg = device_owner_pkg(s)
+        with guard:
+            result[s] = pkg
+
+    threads = [threading.Thread(target=work, args=(s,), daemon=True) for s in devs]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=25)
+    for s in devs:
+        result.setdefault(s, "")
+    return result
+
+
 def get_battery(serial):
     """读单台设备电量，返回 {serial, level, charging, ok, error}。
 
@@ -3222,9 +3270,11 @@ class Handler(BaseHTTPRequestHandler):
             path = "/index.html"
         if path == "/api/devices":
             detail = list_devices_detail()
+            online = [s for s, st in detail if st == "device"]
             self._send(200, {
-                "devices": [s for s, st in detail if st == "device"],
+                "devices": online,
                 "pending": [{"serial": s, "state": st} for s, st in detail if st != "device"],
+                "owners": all_device_owners(online) if online else {},
             })
             return
         if path == "/api/battery":
