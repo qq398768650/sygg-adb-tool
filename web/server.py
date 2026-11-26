@@ -469,20 +469,13 @@ def parse_apk_permissions(apk_path):
         return None
 
 
-def parse_apk_device_admin(apk_path):
-    """从 APK 的 AndroidManifest.xml 里找 device-admin 的接收器完整类名。
+def parse_axml_device_admin(data):
+    """从二进制 AndroidManifest（原始 bytes）里找 device-admin 接收器完整类名。
 
     判据：<receiver android:permission="android.permission.BIND_DEVICE_ADMIN">。
-    这是 dpm set-device-owner 需要的 ComponentName 后半段（不同景区包名不同，
-    所以必须从 APK 里读，不能写死 com.hsy.sygg.ApkDeviceAdmin）。
-    解析失败返回 None（调用方退回「包名.ApkDeviceAdmin」）。
+    解析失败返回 None。
     """
-    try:
-        with zipfile.ZipFile(apk_path) as z:
-            data = z.read("AndroidManifest.xml")
-    except Exception:
-        return None
-    if len(data) < 8:
+    if not data or len(data) < 8:
         return None
     try:
         strings = None
@@ -512,6 +505,22 @@ def parse_apk_device_admin(apk_path):
         return recv or None
     except Exception:
         return None
+
+
+def parse_apk_device_admin(apk_path):
+    """从 APK 的 AndroidManifest.xml 里找 device-admin 的接收器完整类名。
+
+    判据：<receiver android:permission="android.permission.BIND_DEVICE_ADMIN">。
+    这是 dpm set-device-owner 需要的 ComponentName 后半段（不同景区包名不同，
+    所以必须从 APK 里读，不能写死 com.hsy.sygg.ApkDeviceAdmin）。
+    解析失败返回 None（调用方退回「包名.ApkDeviceAdmin」）。
+    """
+    try:
+        with zipfile.ZipFile(apk_path) as z:
+            data = z.read("AndroidManifest.xml")
+    except Exception:
+        return None
+    return parse_axml_device_admin(data)
 
 
 # ---------- adb 定位 ----------
@@ -822,6 +831,82 @@ def device_owner_status(serial):
     rc2, out2 = adb_shell(serial, ["shell", "dpm", "list-owners"], timeout=30)
     m2 = re.search(r"admin=ComponentInfo\{([^}]+)\}", out2 or "")
     return m2.group(1).strip() if m2 else ""
+
+
+def adb_manifest_bytes(serial, apk_path, timeout=60):
+    """只把设备上 base.apk 里的 AndroidManifest.xml 抽出来（不整包拉回电脑）。
+
+    设备都带 unzip（RK3566 实测 /system/bin/unzip），几百 MB 的包也只要一秒。
+    失败返回 b""。
+    """
+    try:
+        r = subprocess.run([ADB, "-s", serial, "exec-out",
+                            "unzip", "-p", apk_path, "AndroidManifest.xml"],
+                           capture_output=True, timeout=timeout)
+        return r.stdout or b""
+    except Exception:
+        return b""
+
+
+def device_admin_component(serial, pkg, apk=None):
+    """找 pkg 的 device-admin 接收器类名。
+
+    优先用本地 APK（并行安装时手上就有），否则从设备上已装包的 base.apk 里读。
+    都读不到返回 None，调用方退回「包名.ApkDeviceAdmin」。
+    """
+    if apk and os.path.isfile(apk):
+        comp = parse_apk_device_admin(apk)
+        if comp:
+            return comp
+    rc, out = adb_shell(serial, ["shell", "pm", "path", pkg], timeout=20)
+    m = re.search(r"package:(.+?/base\.apk)", out or "")
+    if m:
+        comp = parse_axml_device_admin(adb_manifest_bytes(serial, m.group(1)))
+        if comp:
+            return comp
+    return None
+
+
+def set_device_owner_pkg(serial, pkg, apk=None):
+    """给「设备上已经装好的包」单独设置 Device Owner（不重装）。
+
+    返回 {ok, admin, owner, error, log[]}。
+    与 install_one 里那段不同：这里不要求有 APK 文件，admin 组件从设备的 base.apk 里读。
+    """
+    logs = []
+
+    def say(msg):
+        logs.append(msg)
+        log(serial, "       " + msg)
+
+    admin = device_admin_component(serial, pkg, apk)
+    if admin:
+        say(f"admin 组件：{admin}")
+    else:
+        admin = f"{pkg}.{DEVICE_ADMIN_FALLBACK}"
+        say(f"[WARN] 没能从 APK 里读到 device-admin 接收器，退回默认名：{admin}")
+
+    want = f"{pkg}/{admin}"
+    cur = device_owner_status(serial)
+    if cur:
+        if cur.replace(" ", "") == want.replace(" ", ""):
+            say("已经是 Device Owner，无需重设")
+            return {"ok": True, "admin": admin, "owner": cur, "error": "", "log": logs}
+        return {"ok": False, "admin": admin, "owner": cur, "log": logs,
+                "error": f"设备已被 {cur.split('/')[0]} 占用 Device Owner，"
+                         f"需先点卡片上的「解锁」按钮解除（会硬重启，约 2 分钟），再设新的"}
+
+    ok = False
+    try:
+        ok = set_device_owner(serial, pkg, admin)
+    except Exception as e:
+        say(f"[FAIL] 调用 dpm 异常：{e}")
+    owner = device_owner_status(serial)
+    if ok:
+        say(f"已设为 Device Owner：{owner or want}")
+        return {"ok": True, "admin": admin, "owner": owner, "error": "", "log": logs}
+    return {"ok": False, "admin": admin, "owner": owner, "log": logs,
+            "error": "设置失败，原因见日志（设备已登录账号 / 存在多个用户 / 固件不允许）"}
 
 
 def set_device_owner(serial, pkg, admin_component=None):
@@ -3655,6 +3740,32 @@ class Handler(BaseHTTPRequestHandler):
             for s in serials:
                 threading.Thread(target=uninstall_one, args=(s, pkg)).start()
             self._send(200, {"ok": True, "started": len(serials)})
+            return
+        if self.path.split("?")[0] == "/api/set_device_owner":
+            data = self._read_body()
+            serials = data.get("serials") or []
+            if not serials:
+                single = (data.get("serial") or "").strip()
+                serials = [single] if single else list_devices()
+            pkg = (data.get("pkg") or "").strip()
+            apk = (data.get("apk") or "").strip() or None
+            if not pkg:
+                self._send(400, {"ok": False, "error": "缺少包名"})
+                return
+            if not serials:
+                self._send(400, {"ok": False, "error": "没有在线的设备"})
+                return
+            results = {}
+            for s in serials:
+                try:
+                    results[s] = set_device_owner_pkg(s, pkg, apk)
+                except Exception as e:
+                    results[s] = {"ok": False, "error": f"异常：{e}"}
+            ok_count = sum(1 for r in results.values() if r.get("ok"))
+            first_err = next((r.get("error") for r in results.values() if not r.get("ok")), "")
+            self._send(200, {"ok": ok_count > 0, "pkg": pkg, "total": len(serials),
+                             "ok_count": ok_count, "results": results,
+                             "error": "" if ok_count else first_err})
             return
         if self.path.split("?")[0] == "/api/clear_device_owner":
             data = self._read_body()

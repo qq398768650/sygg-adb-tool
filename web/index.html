@@ -264,18 +264,22 @@
     color:var(--text); overflow:hidden; text-overflow:ellipsis;
   }
   .dev .appsel:disabled{ color:var(--dim); cursor:not-allowed; }
-  .dev .trash, .dev .dounlock{
+  .dev .trash, .dev .dounlock, .dev .doset{
     flex-shrink:0; display:grid; place-items:center; width:24px; height:24px;
     border-radius:5px; border:1px solid rgba(239,68,68,.35); background:transparent;
     color:#FCA5A5; cursor:pointer; transition:.15s;
   }
-  .dev .trash svg, .dev .dounlock svg{ width:12px; height:12px; }
+  .dev .trash svg, .dev .dounlock svg, .dev .doset svg{ width:12px; height:12px; }
   .dev .trash:hover{ background:rgba(239,68,68,.16); border-color:rgba(239,68,68,.7); color:#fff; }
   .dev .trash:disabled{ opacity:.45; cursor:wait; }
   /* 解除 Device Owner：橙色，与「卸载」区分开 */
   .dev .dounlock{ border-color:rgba(251,146,60,.35); color:#FDBA74; }
   .dev .dounlock:hover{ background:rgba(251,146,60,.16); border-color:rgba(251,146,60,.7); color:#fff; }
   .dev .dounlock:disabled{ opacity:.45; cursor:wait; }
+  /* 设 Device Owner：绿色，与「解锁」互为反操作 */
+  .dev .doset{ border-color:rgba(52,211,153,.35); color:#6EE7B7; }
+  .dev .doset:hover{ background:rgba(52,211,153,.16); border-color:rgba(52,211,153,.7); color:#fff; }
+  .dev .doset:disabled{ opacity:.45; cursor:wait; }
 
   /* ---------- 按钮 ---------- */
   .btn{
@@ -1422,7 +1426,8 @@ function renderDevices() {
       const t = e.target;
       if (t.classList && (t.classList.contains('wfbtn') || t.classList.contains('logbtn') ||
                           t.classList.contains('scbtn') || t.classList.contains('wdbtn') ||
-                          t.classList.contains('appsel') || t.classList.contains('trash'))) return;
+                          t.classList.contains('appsel') || t.classList.contains('trash') ||
+                          t.classList.contains('doset') || t.classList.contains('dounlock'))) return;
       const s = el.dataset.sn;
       state.devicesChecked[s] = !state.devicesChecked[s];
       renderDevices();
@@ -1474,6 +1479,12 @@ function renderDevices() {
       uninstallFromCard(btn);
     });
   });
+  box.querySelectorAll('.doset').forEach(btn => {
+    btn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      setDoFromCard(btn);
+    });
+  });
   box.querySelectorAll('.dounlock').forEach(btn => {
     btn.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -1498,7 +1509,8 @@ function appLineHtml(s) {
   const opts = d.apps.map(a =>
     `<option value="${esc(a.pkg)}"${a.pkg === cur ? ' selected' : ''}>${esc(a.pkg)}</option>`).join('');
   return `<div class="appline"><select class="appsel" data-sn="${s}" title="设备上已安装的应用">${opts}</select>` +
-         `<button class="dounlock" data-sn="${s}" title="解除 Device Owner / Admin（解除后本机才能正常卸载或换景区包；会硬重启设备，约 2 分钟）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg></button>` +
+         `<button class="doset" data-sn="${s}" title="把下拉里选中的应用设为 Device Owner（App 内静默更新需要它）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg></button>` +
+          `<button class="dounlock" data-sn="${s}" title="解除 Device Owner / Admin（解除后本机才能正常卸载或换景区包；会硬重启设备，约 2 分钟）"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></svg></button>` +
          `<button class="trash" data-sn="${s}" title="卸载选中的应用"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg></button></div>`;
 }
 
@@ -2436,6 +2448,43 @@ async function doUninstall(serial, pkg, btn, busyText, idleText) {
 }
 
 // 设备卡片垃圾桶：卸载当前下拉框选中的应用
+// 把下拉里选中的应用设为 Device Owner（不重装，只补 DO 身份）
+// 前提：设备上不能已有别的 DO；有的话要先点「解锁」解除（会硬重启）。
+async function setDoFromCard(btn) {
+  const s = btn.dataset.sn;
+  const sel = document.querySelector(`.appsel[data-sn="${s}"]`);
+  const pkg = (sel && sel.value) || state.appSel[s];
+  if (!pkg) { toast('先在下拉里选中要设为 Device Owner 的应用', 'err'); return; }
+  if (!await confirmUI(`把 ${pkg} 设为 Device Owner？
+
+` +
+      `设备：${s}
+
+` +
+      `设为 Device Owner 后，这个 App 才能在自己的更新流程里静默安装（后台装完，不用人点）。
+` +
+      `注意：一台设备只能有一个 Device Owner。若已被别的包占用，需先点「解锁」解除（会硬重启，约 2 分钟）。`)) return;
+  const old = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '…';
+  try {
+    const r = await api('set_device_owner', { method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serial: s, pkg }) });
+    const res = (r.results || {})[s] || {};
+    if (res.ok) {
+      toast(`${pkg} 已设为 Device Owner`, 'ok', 6000);
+    } else {
+      toast('设 Device Owner 失败：' + (res.error || r.error || '未知原因'), 'err', 9000);
+    }
+  } catch (err) {
+    toast('设 Device Owner 失败：' + err.message, 'err', 6000);
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = old;
+  }
+}
+
 function uninstallFromCard(btn) {
   const serial = btn.dataset.sn;
   const sel = document.querySelector(`.appsel[data-sn="${serial}"]`);

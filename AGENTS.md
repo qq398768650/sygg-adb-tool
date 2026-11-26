@@ -201,7 +201,67 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - 已存在同名网络时再次注入 = 更新密码并重连，不需要先 forget
 - 前端在 ② WiFi 区块的「注入WiFi」按钮，对**全部在线设备**注入 `#ssid` / `#pass` 里的值
 
+### 6.8 设备端「设备更新助手」App（脱离电脑更新）
+目录 `devupdate-app/`，包名 `com.hsy.devupdate`，产物 `devupdate-app/DevUpdate.apk`（约 37 KB）。
+场景：出差人员在酒店，没电脑，用遥控器让设备自己连 WiFi、从景区发布后台下载并安装最新包。
+
+- **构建**（本机没有 gradle / Android Studio）：`bash devupdate-app/build.sh`
+  - JDK 用 `H:\GitWork2026\Tools\jdk17\jdk-17.0.21.1+2`
+  - build-tools 必须用 **36.0.0**（30.0.3 的 `d8.bat` / `apksigner.bat` 带 `-Djava.ext.dirs`，JDK 17 上直接报 `Could not create the Java Virtual Machine`）
+  - 流程：`aapt2 compile/link` → `javac` → `d8` → `jar uf` → `zipalign` → `apksigner`；签名 keystore `devupdate-app/devupdate.jks`（`123456` / alias `devupdate`），首次自动生成
+- **界面是 D-pad 导航**：设备没有触摸屏，只有 `adc-keys`（上下左右 + KEY_ENTER）和 `gpio-keys`（BACK / 音量）。
+  列表项高亮用 `res/drawable/item_bg.xml` 的 **`state_selected`**（用 `state_focused` 不会亮）。
+- **连 WiFi**：扫描（`startScan` + SCAN_RESULTS，需 ACCESS_FINE_LOCATION）→ 选热点 → D-pad 软键盘输密码 →
+  `WifiNetworkSuggestion` + `addNetworkSuggestions`（status 0 成功、3 重复也算成功）→ `disconnect()` 促使重选 → 轮询 `getConnectionInfo()`。
+  首次会弹系统「是否允许连接到建议的 WLAN」，用遥控器按确认即可，之后不再弹。
+- **检查更新**：内置项目清单 `UpdateActivity.PROJECTS`（13 个 key，**与 Unity 工程 `D:\UnityWork2026\MRShenYang\Assets\Editor\ScenicProjectMap.json` 同步**；新增景区必须同时改这里并重新打 APK，否则列表里看不到——CDN 不支持列举目录，没有项目清单接口），直接读公开 CDN（**不需要 api_key**）
+  `http://cdn2.vr.hoseavr.com/arasset/{proj}/index.json` → `currentVersionCode` + 对应版本的 packageName；
+  `{proj}/v{vc}/meta.json` → `.apk` 文件名与大小 → `{CDN}{proj}/v{vc}/{apkName}`。
+  本机版本用 `PackageManager.getPackageInfo`，需要 **`QUERY_ALL_PACKAGES`** 权限，否则 Android 11 包可见性会让别的 App 一律显示「未安装」。
+- **安装**：`PackageInstaller` Session（`MODE_FULL_INSTALL`）→ `commit(PendingIntent)`。
+  **DO 被 `com.hsy.sygg` 占用（non-testOnly，Android 11 无法移除）**，所以新包拿不到静默安装：
+  回调收到 `STATUS_PENDING_USER_ACTION (-1)` 时必须自己 `startActivity(intent.getParcelableExtra(Intent.EXTRA_INTENT))` 才会弹确认框，遥控器按「安装」。
+  另外要在系统里允许「安装未知应用」：`adb shell appops set com.hsy.devupdate REQUEST_INSTALL_PACKAGES allow`。
+- 其他权限：INTERNET / ACCESS_NETWORK_STATE / ACCESS_WIFI_STATE / CHANGE_WIFI_STATE / RECEIVE_BOOT_COMPLETED；`usesCleartextTraffic="true"`（CDN 是 http）。
+- 实测（DR301V010320250726000496 / rk3566_r / Android 11）：扫描 14 个热点 → 输密码连上 Xiaomi_HSY → 列表拉到 10 个项目（5 个有发布记录，5 个 404 显示「后台暂无发布记录」）→ 云冈石窟 324 MB 下载 → 弹安装框 → 装上 `com.hsy.ygsk` → 列表自动刷新成「本机 v32 · 最新 v32 ✅ 已最新」。
+- 列表排序：可更新的排最前，其次「已最新」，最后是后台还没发布过的项目（`rank()` + `sortItems()`）。
+- 点「已最新」的项目会弹「本机已是最新 vX，要现在打开它吗？」，按「打开」用 `getLaunchIntentForPackage` 直接启动该 App（现场看效果不用再找图标）。
+- **可作为默认桌面（HOME）**：`MainActivity` 的 intent-filter 同时声明 `LAUNCHER` + `HOME` + `DEFAULT`；主菜单第 3 项「默认桌面」走 `RoleManager.createRequestRoleIntent(ROLE_HOME)` 弹系统确认框（遥控器上下 + 确认就能操作）。
+  已验证：切换后 `dumpsys role` 显示 `android.app.role.HOME holders=com.hsy.devupdate`，`cmd package resolve-activity -c android.intent.category.HOME` 返回 devupdate；切回用 `pm set-home-activity <包名>/<Activity>`。
+  用途：现场业务 App 崩了 / 没装时，把本程序设为桌面，开机就有入口能连 WiFi、拉新包。
+- 主页「连接 WiFi」的副标题会显示当前网络（`MainActivity.wifiSub()`）：连上时「已连接 Xiaomi_HSY」，否则「扫描附近热点并输入密码」。
+  `onResume()` 每次都重算，从 WiFi 页回来就更新。SSID 在 Android 10+ 要定位权限，进主页时会申请一次；没权限时降级成「已连接 WiFi（看不到名称，检查定位权限）」。
+- **密码输错不能卡死**：`PassActivity` 连接中会禁用并变灰键盘，主按钮变「✖ 取消」（底部按钮排第一个），
+  BACK 随时取消；轮询 20 次 × 2 秒 = **40 秒**仍没连上就提示「40 秒内没连上。可能密码不对、不在范围内，或热点有客户端隔离」并恢复可编辑。
+  另外如果目标 SSID 就是当前已连网络，直接提示「当前已经连在…上」——否则输错密码也会被误判成功（旧 SSID 没变）。
+- **踩过的坑**：① 后台线程直接改 UI 会抛 `Only the original thread that created a view hierarchy can touch its views`，所有 `setStatus` / `progress` 必须 `ui.post`；② 下载中断后重试要先比对文件大小，完整则跳过重下。
+
+#### 6.8.1 差分更新（只下变化的块）
+
+- 算法与 Unity 端 `D:\UnityWork2026\MRShenYang\Assets\Scripts\JS\Update\FastCdc.cs` / `PatchAssembler.cs` **必须逐字节一致**，任何常量改动都会让命中率归零：
+  `MinSize=16*1024`、`AvgSize=64*1024`、`MaxSize=128*1024`、`MaskSBits=18`、`MaskLBits=14`；gear 表用 splitmix64（`x` 初值 `0x9E3779B97F4A7C15`，每轮先 `x += 0x9E3779B97F4A7C15`）。
+- 客户端实现：`FastCdc.java`（流式 `Chunker`，`BlockSink.onBlock(pos, data, off, len)`）、`XxHash64.java`、
+  `PatchBuilder.java`（切旧包建「指纹→偏移」索引 → 命中就从旧包拷、未命中记 pending → 合并相邻缺口 → HTTP Range 下载 → sha256 校验）。
+- patch 清单 `{proj}/v{vc}/{pkg}_patch-{vc}.json` 格式：`{"algorithm":"fastcdc-v1","newSize":…,"newSha256":…,"blocks":[{"o":0,"l":64466,"h":"c9d69e73812b2553"},…]}`，不含 baseVersionCode（任何旧包都能试匹配）。
+- 流程：`meta.json` 里同时有 `.apk` 和名字含 `patch` 的 `.json`，且 `installedApk(pkg)`（`applicationInfo.publicSourceDir`）可读，就先走差分；失败自动回退整包。
+  普通 App 能读别的 App 的 `base.apk`（权限 644、目录 775），不需要 `debuggable` / `run-as`。
+- 状态行会显示「差分完成：复用 N 块，实际下载 X（整包 Y）」，安装完成后仍保留这句话。
+- **坑（花了不少时间）**：`XxHash64` 的五个常量在 Java 里如果写成十进制负数极易抄错 —— P1 曾写成 `-7046029254386353131L`
+  （正确是 `-7046029254386353125L`，差 6），表现为「切块边界全对、hash 全不匹配、命中 0」。**一律写十六进制字面量**：
+  `0x9E3779B185EBCA87L / 0xC2B2AE3D27D4EB4FL / 0x165667B19E3779F9L / 0x85EBCA77C2B2AE63L / 0x27D4EB2F165667C5L`。
+  自检办法：`xxh64("")=ef46db3751d8e999`、`xxh64("a")=d24ec4f1a98c6e5b`、`xxh64("abc")=44bc2cf5ad770999`。
+- 实测（2026-11-24，宋潮不夜城 v35→v36，整包 720,181,102 字节）：本地复用 **10447 块**，只下载 **23,279,708 字节（22.2 MB，约 3.2%）**，22 秒完成合成，sha256 通过并正常安装到 v36；榆次县衙 v1→v2（400 MB）同样成功。
+
 ---
+
+### 6.9 单独设置 Device Owner（不重装）
+
+设备卡片里应用下拉旁边的**绿色锁按钮** = 把下拉里选中的包设为 Device Owner（App 内静默更新的前提）。
+
+- 路由：`POST /api/set_device_owner {serial|serials, pkg, apk?}` → `set_device_owner_pkg()`，返回 `{ok, pkg, total, ok_count, results{serial:{ok, admin, owner, error, log[]}}}`。
+- admin 组件来源（`device_admin_component()`）：本地 APK（传了 `apk` 时）→ 设备的 base.apk（`pm path` + `exec-out unzip -p <apk> AndroidManifest.xml`，由 `adb_manifest_bytes()` + `parse_axml_device_admin()` 处理，**不整包拉回电脑**）→ 兜底 `<pkg>.ApkDeviceAdmin`。
+- 一台设备只能有一个 DO：已被别的包占用时直接返回错误，提示先点卡片上的「解锁」（`clear_device_owner()` 会硬重启）。
+- **坑**：部分景区包是从同一模板复制的，manifest 里 receiver 类名还写着 `com.hsy.sygg.ApkDeviceAdmin`。云冈石窟 `com.hsy.ygsk` 就是这样 —— 解析出来不是本包前缀**是正常的**，`dpm set-device-owner com.hsy.ygsk/com.hsy.sygg.ApkDeviceAdmin` 依然有效，别当成解析 bug 去"修"。
 
 ## 7. 代码约定
 

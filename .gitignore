@@ -43,3 +43,6 @@ _restart_helper.ps1
 _restart_helper.log
 .fsa_from_apk/
 .fsa_meta.json
+
+# ==== 设备端 Android 工程（独立分发，不进安装工具仓库）====
+devupdate-app/

@@ -1,10 +1,10 @@
 {
-  "version": "1.1.0",
-  "notes": "访问密钥改为仅本次会话有效（不落盘）；在线下载/发布入口默认隐藏，本机加 ?adv=1 打开",
+  "version": "1.1.1",
+  "notes": "设备卡片新增「设为 Device Owner」按钮：按包名给已装应用补 DO 身份（自动从设备 APK 读 admin 组件，DO 被占用会明确提示先解锁）",
   "files": {
-    "launcher.exe": "a3637338f2748f755d365ffde744c3ac",
-    "web/server.py": "8e7fbd5e116849299712332a8361f9bc",
-    "web/index.html": "0b33b37b8f62bc1f3711c393c86ebbcf",
+    "launcher.exe": "edc6f00e49b047a75a2a13a3c2519879",
+    "web/server.py": "1098ecfc3546106f66889b588c63d6e8",
+    "web/index.html": "90c79a751c0ba4cb84c75b5ae63eee54",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",
