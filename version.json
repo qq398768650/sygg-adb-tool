@@ -1,10 +1,10 @@
 {
-  "version": "1.1.4",
-  "notes": "fsa 数据包改为随 APK 内置，删掉 fsa 上传接口（zip/文件夹直传），面板只显示内置状态",
+  "version": "1.1.5",
+  "notes": "前端轮询加去重与 12 秒超时，避免后端重启时请求堆积把页面卡死",
   "files": {
     "launcher.exe": "2f2d83ccca2f6a4e35992628cbe40002",
     "web/server.py": "35eb4631c6dfbd2648b72187ba643a4d",
-    "web/index.html": "70c14ead54fe1b36becfd89c29be10a2",
+    "web/index.html": "a78bfafa325028efa734203070753009",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

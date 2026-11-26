@@ -900,7 +900,15 @@ function confirmUI(msg) {
 let poll = null;
 
 function api(path, opt) {
-  return fetch('/api/' + path, opt).then(r => r.json());
+  const o = opt || {};
+  // 传了 timeout 就带 AbortController：后端被重启/半死时，请求会一直挂着，
+  // 浏览器对同一 host 只有 6 个并发，挂满之后整个页面就"卡死"了。
+  if (!o.timeout) return fetch('/api/' + path, o).then(r => r.json());
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), o.timeout);
+  return fetch('/api/' + path, Object.assign({}, o, { signal: ctl.signal }))
+    .then(r => r.json())
+    .finally(() => clearTimeout(timer));
 }
 
 // 当前版本号
@@ -1347,8 +1355,11 @@ function init() {
   refreshDevices();
 }
 
+let devBusy = false, wifiBusy = false, statusBusy = false;   // 轮询去重：上一次没回来就跳过，别堆请求
 function refreshDevices(forceApps) {
-  api('devices').then(d => {
+  if (devBusy) return;
+  devBusy = true;
+  api('devices', { timeout: 12000 }).then(d => {
     state.devices = d.devices || [];
     state.pending = d.pending || [];
     state.ownerMap = d.owners || {};   // {serial: 当前 Device Owner 包名}，没有就是空串
@@ -1356,16 +1367,20 @@ function refreshDevices(forceApps) {
     syncCardBattery();       // 同步电量（30 秒 TTL）
     adbDevices();            // 同步 ADB 终端的设备下拉框
     renderDevices();
-  }).catch(()=>{ $('deviceErr').textContent = '无法连接后端'; });
+  }).catch(()=>{ $('deviceErr').textContent = '无法连接后端'; })
+    .finally(() => { devBusy = false; });
 }
 
 function refreshWifi() {
-  api('wificheck').then(d => {
+  if (wifiBusy) return;
+  wifiBusy = true;
+  api('wificheck', { timeout: 12000 }).then(d => {
     const map = {};
     (d.wifi||[]).forEach(w => map[w.serial] = w);
     state.wifiMap = map;
     renderDevices();
-  }).catch(()=>{});
+  }).catch(()=>{})
+    .finally(() => { wifiBusy = false; });
 }
 
 function renderPendingTip() {
@@ -1717,7 +1732,9 @@ function renderStatus() {
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
 function refreshStatus() {
-  api('status').then(d => {
+  if (statusBusy) return;
+  statusBusy = true;
+  api('status', { timeout: 12000 }).then(d => {
     const map = {};
     (d.devices||[]).forEach(s => map[s.serial]=s);
     state.statusMap = map;
@@ -1737,7 +1754,8 @@ function refreshStatus() {
         showInstallSummary(batch, map);
       }
     }
-  }).catch(()=>{});
+  }).catch(()=>{})
+    .finally(() => { statusBusy = false; });
 }
 
 function showInstallSummary(batch, map) {
