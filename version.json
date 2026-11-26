@@ -1,10 +1,10 @@
 {
-  "version": "1.1.5",
-  "notes": "前端轮询加去重与 12 秒超时，避免后端重启时请求堆积把页面卡死",
+  "version": "1.1.6",
+  "notes": "改名：和思易景区批量安装工具；修复设备卡片不显示（appsState 未定义）、fsa 状态读取失败静默",
   "files": {
-    "launcher.exe": "2f2d83ccca2f6a4e35992628cbe40002",
-    "web/server.py": "35eb4631c6dfbd2648b72187ba643a4d",
-    "web/index.html": "a78bfafa325028efa734203070753009",
+    "launcher.exe": "d61170f09545f9cddeeea1fb63e8a69f",
+    "web/server.py": "b807db7a0ac07d1bed0368d67ee465c3",
+    "web/index.html": "14dd8f816a3018a278d4e429c8a8ccfa",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

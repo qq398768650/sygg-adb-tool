@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>批量 ADB 安装工具</title>
+<title>和思易景区批量安装工具</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns%3D%27http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%27%20viewBox%3D%270%200%2064%2064%27%3E%3Cdefs%3E%3ClinearGradient%20id%3D%27g%27%20x1%3D%270%27%20y1%3D%270%27%20x2%3D%271%27%20y2%3D%271%27%3E%3Cstop%20offset%3D%270%27%20stop-color%3D%27%2338bdf8%27%2F%3E%3Cstop%20offset%3D%271%27%20stop-color%3D%27%236366f1%27%2F%3E%3C%2FlinearGradient%3E%3C%2Fdefs%3E%3Crect%20width%3D%2764%27%20height%3D%2764%27%20rx%3D%2714%27%20fill%3D%27url%28%23g%29%27%2F%3E%3Crect%20x%3D%2717%27%20y%3D%278%27%20width%3D%2730%27%20height%3D%2748%27%20rx%3D%277%27%20fill%3D%27none%27%20stroke%3D%27%2306121f%27%20stroke-width%3D%274%27%2F%3E%3Cpath%20d%3D%27M32%2021v13%27%20stroke%3D%27%2306121f%27%20stroke-width%3D%274.5%27%20stroke-linecap%3D%27round%27%2F%3E%3Cpath%20d%3D%27M25.5%2029.5%2032%2036l6.5-6.5%27%20fill%3D%27none%27%20stroke%3D%27%2306121f%27%20stroke-width%3D%274.5%27%20stroke-linecap%3D%27round%27%20stroke-linejoin%3D%27round%27%2F%3E%3Ccircle%20cx%3D%2732%27%20cy%3D%2748.5%27%20r%3D%272.8%27%20fill%3D%27%2306121f%27%2F%3E%3C%2Fsvg%3E">
 <style>
   /* ============ 设计令牌（OLED 深色 · 运维控制台） ============ */
@@ -618,7 +618,7 @@
         </svg>
       </span>
       <div class="brand-txt">
-        <h1>批量 ADB 安装工具</h1>
+        <h1>和思易景区批量安装工具</h1>
         <div class="sub">拖入 APK / 填 WiFi → 勾选设备 → 一键并行安装（每台独立线程，互不影响）</div>
       </div>
     </div>
@@ -898,6 +898,9 @@ function confirmUI(msg) {
   });
 }
 let poll = null;
+
+// 每台设备的已装应用列表缓存：{data: {serial: {apps, error, ts}}}
+const appsState = { data: {} };
 
 function api(path, opt) {
   const o = opt || {};
@@ -1367,7 +1370,7 @@ function refreshDevices(forceApps) {
     syncCardBattery();       // 同步电量（30 秒 TTL）
     adbDevices();            // 同步 ADB 终端的设备下拉框
     renderDevices();
-  }).catch(()=>{ $('deviceErr').textContent = '无法连接后端'; })
+  }).catch(e=>{ console.error('[refreshDevices]', e && (e.stack || e)); $('deviceErr').textContent = '无法连接后端'; })
     .finally(() => { devBusy = false; });
 }
 
@@ -2279,7 +2282,11 @@ function refreshFsaStatus() {
     } else {
       el.innerHTML = `<span style="color:#f87171">✘ 这个 APK 没有内置 fsa — 请让发布流程把数据打进 assets/aikit/fsa</span>`;
     }
-  }).catch(() => {});
+  }).catch(e => {
+    console.error('[refreshFsaStatus]', e && (e.stack || e));
+    const el = $('fsaStatus');
+    if (el && el.textContent.trim() === '检查中...') el.textContent = '读取失败，点「刷新设备」重试';
+  });
 }
 
 function fetchApps(serial, done) {

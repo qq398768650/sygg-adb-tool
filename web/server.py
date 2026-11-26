@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-批量 ADB 安装工具 (Web 版)
+和思易景区批量安装工具 (Web 版)
 Python 后端: HTTP 服务 + 真并行 adb 安装 + 实时状态
 
 运行:  python server.py   (或双击 启动.bat)
