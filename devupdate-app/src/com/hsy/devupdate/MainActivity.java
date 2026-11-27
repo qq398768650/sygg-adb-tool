@@ -61,6 +61,7 @@ public class MainActivity extends Activity {
         }
     }
 
+    private static final int MENU_BACK = 6;
     private static final int MENU_WIFI = 1;
     private static final int MENU_UPDATE = 2;
     private static final int MENU_ABOUT = 3;
@@ -70,6 +71,12 @@ public class MainActivity extends Activity {
     private static final int REQ_HOME = 22;
     private static final int SELF_REQ = 91;
     private static final String ACTION_SELF_RESULT = "com.hsy.devupdate.SELF_INSTALL_RESULT";
+
+    /** 景区应用呼出本程序时带的包名：退出时按它原路返回 */
+    private static final String EXTRA_FROM_PKG = "from_pkg";
+
+    /** 要返回的景区应用包名，空串表示不是从景区呼出的（开机自启 / 桌面点进来） */
+    private static String returnPkg = "";
 
     private final List<Item> items = new ArrayList<>();
     private ListView menu;
@@ -104,6 +111,8 @@ public class MainActivity extends Activity {
                 onMenu(items.get(position));
             }
         });
+
+        resolveReturnPkg();
 
         // 读当前 WiFi 名称在 Android 10+ 需要定位权限，进主页就先要一次（只弹一次，用户按确认即可）
         if (checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -142,9 +151,101 @@ public class MainActivity extends Activity {
         refreshMenu();
     }
 
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        // 重复从景区呼出时复用同一个实例（manifest 里 MainActivity 是 singleTask），
+        // 这里刷新来源包名，否则还在用上一次的 returnPkg。
+        setIntent(intent);
+        resolveReturnPkg();
+        refreshMenu();
+    }
+
+    /**
+     * 决定「返回景区应用」的目标：
+     * ① intent 带了 from_pkg（从景区按快捷键呼出）→ 用它，并记住（开机 / 被杀后重开还能用）；
+     * ② 没带（开机自启、从桌面点进来、进程被系统杀掉后重建）→ 用上次记住的景区包；
+     * ③ 都没有、或那个包已经被卸载 → 空串，不显示返回项。
+     */
+    private void resolveReturnPkg() {
+        Intent it = getIntent();
+        String from = it == null ? null : it.getStringExtra(EXTRA_FROM_PKG);
+        if (from != null) from = from.trim();
+        if (from != null && !from.isEmpty() && !from.equals(getPackageName())) {
+            returnPkg = from;
+            ScenicPrefs.remember(this, from);
+            android.util.Log.i("DevUpdate", "景区呼出：from_pkg=" + from);
+            return;
+        }
+        // 不是从景区呼出的（开机自启 / 桌面点开 / 被系统重开）：不显示「返回景区应用」，BACK 保持原行为。
+        // 需求口径：returnPkg 为空时不做任何跳转。上次的景区包仍记着（BootReceiver 开机拉起景区要用），
+        // 这里只是不再把它当成"返回目标"。
+        returnPkg = "";
+        android.util.Log.i("DevUpdate", "不是从景区呼出，不显示返回项");
+    }
+
+    /**
+     * 返回景区应用。没有返回目标时返回 false，让调用方走原来的行为。
+     * 包被卸载 / 没有启动入口时提示并清空目标，绝不在这里崩。
+     */
+    private boolean goBackToScenic() {
+        if (returnPkg == null || returnPkg.isEmpty()) return false;
+        Intent launch = null;
+        try {
+            launch = getPackageManager().getLaunchIntentForPackage(returnPkg);
+        } catch (Exception ignored) {
+        }
+        if (launch == null) {
+            forgetScenic();
+            return true;
+        }
+        // 锁到唯一组件：景区包同时声明了 LAUNCHER + HOME，裸的 getLaunchIntentForPackage
+        // 只带 package 不带 component，startActivity 时可能解析出多个候选，会弹出
+        // 「选择打开方式」（android/com.android.internal.app.ResolverActivity）—— 2026-11-27 真机踩到。
+        try {
+            android.content.pm.ResolveInfo ri = getPackageManager().resolveActivity(launch, 0);
+            if (ri != null && ri.activityInfo != null) {
+                launch.setComponent(new android.content.ComponentName(ri.activityInfo.packageName, ri.activityInfo.name));
+            }
+        } catch (Exception ignored) {
+        }
+        launch.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try {
+            startActivity(launch);
+            finish();
+            return true;
+        } catch (Exception e) {
+            forgetScenic();
+            return true;
+        }
+    }
+
+    /** 目标包打不开：提示一句、清掉记录、刷新菜单（返回项随之消失）。 */
+    private void forgetScenic() {
+        returnPkg = "";
+        ScenicPrefs.forget(this);
+        toast("没找到景区应用，请手动选择");
+        refreshMenu();
+    }
+
+    @Override
+    public void onBackPressed() {
+        // 从景区呼出的：按一次 BACK 直接回景区，不回桌面、不弹选择框
+        if (goBackToScenic()) return;
+        // 不是从景区呼出的（开机自启 / 桌面点开）：没有"返回目标"。
+        // 这里退到后台，不走 super.onBackPressed() —— 后者会 finish 本页，
+        // 而这台设备同时有多个 HOME 候选（simplelauncher / 各景区包），系统会弹「选择打开方式」。
+        moveTaskToBack(true);
+    }
+
     private void refreshMenu() {
         int sel = menu.getSelectedItemPosition();
         items.clear();
+        // 从景区呼出时第一项就是「返回景区应用」，现场人员不用猜返回键
+        if (!returnPkg.isEmpty()) {
+            String nm = appLabel(returnPkg);
+            items.add(new Item(MENU_BACK, "← 返回景区应用", nm.isEmpty() ? returnPkg : nm));
+        }
         items.add(new Item(MENU_WIFI, "连接 WiFi", wifiSub()));
         items.add(new Item(MENU_UPDATE, "景区应用列表", "选择景区安装、更新或打开应用"));
         items.add(new Item(MENU_GRANT, "一键授权", grantSub()));
@@ -361,6 +462,9 @@ public class MainActivity extends Activity {
 
     private void onMenu(Item it) {
         switch (it.id) {
+            case MENU_BACK:
+                goBackToScenic();
+                break;
             case MENU_WIFI:
                 startActivity(new Intent(this, WifiActivity.class));
                 break;

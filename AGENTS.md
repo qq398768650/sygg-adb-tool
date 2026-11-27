@@ -320,6 +320,27 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - **D-pad 坑**：系统安装框默认焦点在「取消」，必须**按右键**再按确认才是「安装」，否则回调 `INSTALL_FAILED_ABORTED: User rejected permissions`（status=3）。
 - `release.ps1` 发版时也会把 APK/json 传到 Release 资产（兜底镜像 `releases/latest/download/`）。
 
+### 6.8.5 从景区 App 呼出 / 退出回景区（v1.3.4，2026-11-27）
+
+现场设备无触摸屏，景区 App 卡住时靠遥控器自救 —— 景区 App 侧按 `↑↑↓↓←→`（2.5s 内）呼出本助手。
+
+- 助手侧实现：
+  - `MainActivity` 静态 `private static String returnPkg`；`onCreate` / `onNewIntent` 调 `resolveReturnPkg()`：
+    先取 `Intent.getStringExtra("from_pkg")`（非空且不等于自己）→ 存 `ScenicPrefs.remember`；
+    否则取 `ScenicPrefs.remembered`（写在 SharedPreferences `devupdate` / `last_scenic_pkg`），**装了才用**。
+  - `onBackPressed()`：`returnPkg` 非空 → `goBackToScenic()`（`getLaunchIntentForPackage(returnPkg)` + `FLAG_ACTIVITY_NEW_TASK` + `finish()`）；
+    为空时才 `super.onBackPressed()`。
+  - 菜单首项「← 返回景区应用」（`MENU_BACK = 6`，副标题 = `appLabel(returnPkg)`），效果同 BACK。
+  - 兜底：`getLaunchIntentForPackage` 返回 null 或抛异常 → toast「没找到景区应用，请手动选择」+ 清 `returnPkg` + `ScenicPrefs.forget`，**不崩溃**。
+  - `MainActivity` 的 `android:launchMode="singleTask"`：重复呼出复用实例走 `onNewIntent`（不会堆栈叠加）。
+  - `BootReceiver` 顺序改过：`BOOT_COMPLETED` 先 `ScenicPrefs.remembered` + `launchable` → 拉起景区 App；
+    没有记住的景区包才回落启动本助手（保证开机进景区，助手仍可快捷键呼出）。
+- 景区 App 侧（`D:\UnityWork2026\MRShenYang`）：主 Activity 换成 `com.hsy.sygg.DevUpdateHotkeyActivity`（继承 `UnityPlayerActivity`，
+  覆写 `dispatchKeyEvent` 做序列识别），呼出时 `putExtra("from_pkg", getPackageName())`；
+  该工程里 6 处硬编码 `UnityPlayerActivity.class` 已同步改名，详见它的 `AGENTS.md`「遥控器快捷键呼出」一节。
+- 实测（DR301V 设备）：序列呼出 → 助手主页；BACK → 回到**同一个** ActivityRecord（pid 不变，不重建）；
+  `am force-stop com.hsy.devupdate` 后再按序列仍能呼出且返回项在（SP 兜底）；`adb reboot` 后直接进景区 App。
+
 ### 6.8.3 一键授权（装完自动补权限）
 
 设备不是 Device Owner（DO 被业务包占着），`PackageInstaller` 装完的包**运行时权限全是未授予**，
