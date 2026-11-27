@@ -10,10 +10,15 @@ $repoSlug = 'qq398768650/sygg-adb-tool'
 $proxy    = 'http://127.0.0.1:7897'
 
 # 仅在 web/server.py 有改动时才重打包（launcher.exe 内嵌 server.py；index.html 等由磁盘读取）
+# 注意：只比 git 差异不够 —— 改动已提交后工作区是干净的，但 exe 可能还是上一次的旧包。
+# 所以再加一条：launcher.exe 比 web/server.py 旧就必须重打包。
 $needBuild = $true
 if (Test-Path (Join-Path $root 'launcher.exe')) {
     & git -C $root diff --quiet HEAD -- web/server.py web/updater.py 2>$null
-    if ($LASTEXITCODE -eq 0) { $needBuild = $false }
+    $dirty = ($LASTEXITCODE -ne 0)
+    $exeTime = (Get-Item (Join-Path $root 'launcher.exe')).LastWriteTime
+    $pyTime = (Get-Item (Join-Path $root 'web/server.py')).LastWriteTime
+    if (-not $dirty -and $exeTime -ge $pyTime) { $needBuild = $false }
 }
 if ($needBuild) {
     Write-Host '[release] 重新打包 launcher.exe ...' -ForegroundColor Cyan

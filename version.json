@@ -1,8 +1,8 @@
 {
-  "version": "1.1.8",
-  "notes": "设备操作行新增「一键装助手」：批量安装设备端更新助手并设 Device Owner",
+  "version": "1.1.9",
+  "notes": "补打包 launcher.exe（1.1.8 只改了源码没重建 exe，导致「一键装助手」不生效）",
   "files": {
-    "launcher.exe": "f5e2e975e367bf638923955c655d49ff",
+    "launcher.exe": "0b6ce5093159d6775840da2293854554",
     "web/server.py": "7905d04d66d520d36137c34e7e776664",
     "web/index.html": "48c736de1cdbad1ab2856965d84daaba",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
