@@ -263,10 +263,13 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
     **解码只取框内 ROI**（`updateRoi()` 把控件坐标按 `frameW/viewW` 换算成预览帧坐标），框内没有码就什么都不做，跟常见扫码 App 的行为一致。
     `activity_scan.xml` 里 `ScanOverlay` 必须放在 `SurfaceView` 之后、标题/状态 `TextView` 之前，否则遮罩会盖住文字。
   - 相机三个坑：① `Camera.open()` 要 1~3 秒，**必须放后台线程**（主线程会 ANR，`WifiActivity ... Waited 5000ms for FocusEvent`）；
-    ② 预览分辨率按 `{1280*720, 960*540, 640*480, 320*240}` 优先选，选 1600x1200 时外接摄像头只有 **0.097 FPS**，选 1280x720 才 31.7 FPS；
+    ② 预览分辨率必须先用摄像头**原生尺寸 640x480**（`{640*480, 960*540, 1280*720, 320*240}` 这个顺序）。SPCA2688 这类 USB 摄像头原生是 640x480，
+    请求 1280x720 会让 HAL 走 RGA 缩放，RK3566 上 `rga_nv12_scale_crop:rga blit failed` 刷屏、预览**整片深绿**（UV 全 0）；
+    选 1600x1200 时只有 **0.097 FPS**；
     ③ `setDisplayOrientation(0)`，设 180 画面会倒。
+  - 预览格式别硬写 `setPreviewFormat(NV21)`：先看 `getSupportedPreviewFormats()`，支持才设。回调缓冲按 `getPreviewFormat()` 算大小，给两块减少丢帧。
   - 连接失败会 `handled = false` 并重开相机，用户不用退出重进。
-  - 实测：相机 1280x720 / 31.7 FPS 正常取景，框内对准二维码能识别并进入「识别到 X，正在连接…」。
+  - 实测：相机 640x480 正常取景（2026-11-27 换的 SPCA2688 USB 摄像头在这个尺寸下才不绿），框内对准二维码能识别并进入「识别到 X，正在连接…」。
 - **踩过的坑**：① 后台线程直接改 UI 会抛 `Only the original thread that created a view hierarchy can touch its views`，所有 `setStatus` / `progress` 必须 `ui.post`；② 下载中断后重试要先比对文件大小，完整则跳过重下。
 
 #### 6.8.1 差分更新（只下变化的块）

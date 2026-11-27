@@ -168,7 +168,10 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
 
         try {
             Camera.Parameters p = c.getParameters();
-            p.setPreviewFormat(ImageFormat.NV21);
+            // 不硬塞 NV21：USB 摄像头（SPCA2688）的 HAL 只吃特定格式，硬设会让预览整片绿
+            java.util.List<Integer> fmts = p.getSupportedPreviewFormats();
+            android.util.Log.i("ScanActivity", "支持预览格式：" + fmts + " 当前：" + p.getPreviewFormat());
+            if (fmts != null && fmts.contains(ImageFormat.NV21)) p.setPreviewFormat(ImageFormat.NV21);
             Camera.Size size = pickSize(p.getSupportedPreviewSizes());
             p.setPreviewSize(size.width, size.height);
             java.util.List<String> modes = p.getSupportedFocusModes();
@@ -185,7 +188,9 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
             // 这台设备的 USB 摄像头装出来就是正的，不用旋转
             c.setDisplayOrientation(0);
             c.startPreview();
-            int bytes = frameW * frameH * ImageFormat.getBitsPerPixel(ImageFormat.NV21) / 8;
+            int bytes = frameW * frameH * ImageFormat.getBitsPerPixel(p.getPreviewFormat()) / 8;
+            // 给两个缓冲：USB 摄像头 30 帧，一个缓冲容易丢帧/闪
+            c.addCallbackBuffer(new byte[bytes]);
             c.addCallbackBuffer(new byte[bytes]);
             c.setPreviewCallbackWithBuffer(this);
 
@@ -223,7 +228,9 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
         android.util.Log.i("ScanActivity", "支持的预览尺寸：" + sb);
 
         Camera.Size best = null;
-        int[] prefer = {1280 * 720, 960 * 540, 640 * 480, 320 * 240};
+        // 先试摄像头原生尺寸：SPCA2688 这类 USB 摄像头原生就是 640x480（YUYV），
+        // 请求别的尺寸会让 HAL 走 RGA 缩放，RK3566 上实测 rga_nv12_scale_crop 失败 → 整屏绿
+        int[] prefer = {640 * 480, 960 * 540, 1280 * 720, 320 * 240};
         for (int want : prefer) {
             for (Camera.Size s : sizes) {
                 if (s.width * s.height == want) {
