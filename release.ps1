@@ -102,6 +102,12 @@ $files = [ordered]@{
     'web/updater.py' = (Get-Md5 (Join-Path $root 'web/updater.py'))
     '启动.bat'       = (Get-Md5 (Join-Path $root '启动.bat'))
 }
+# 设备端「安装包更新」助手：纳入更新清单，
+# 否则老客户端升级上来时 devupdate-app/ 不存在，「一键装助手」和并行安装顺带装都会失败
+$helperApk = Join-Path $root 'devupdate-app/DevUpdate.apk'
+if (Test-Path $helperApk) {
+    $files['devupdate-app/DevUpdate.apk'] = (Get-Md5 $helperApk)
+}
 # 内置 scrcpy（精简版）：纳入更新清单，老客户端更新时会自动补齐 scrcpy/ 目录
 $scrcpyDir = Join-Path $root 'scrcpy'
 if (Test-Path $scrcpyDir) {

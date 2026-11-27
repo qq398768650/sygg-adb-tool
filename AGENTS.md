@@ -16,6 +16,17 @@ Windows 上的 **ADB 批量安装工具**：
 
 仓库：<https://github.com/qq398768650/sygg-adb-tool>（public，`main`）
 
+### 🔴 两个 Web 服务的端口别混（2026-11-27 实测）
+
+| 地址 | 是什么 | 启动前提 |
+| --- | --- | --- |
+| `http://127.0.0.1:8765/`（局域网 `http://本机IP:8765/`） | **本工具**（`launcher.exe` / `web/server.py`，`PORT = 8765`） | 双击 `launcher.exe` 或 `启动.bat` |
+| `http://本机IP:8099/` | **Unity 的 AR导览编辑器**（`Assets/Editor/RemoteEdit`，内部绑 8100，node 代理对外 8099） | Unity 编辑器开着、且 `EditorPrefs RemoteEdit_DesiredRunning` 为真 |
+
+实测口径：`http://192.168.1.101:8099/api/health` → `{"ok":true,"port":8100,"unityVersion":"6000.3.25f1","projectPath":"D:\\UnityWork2026\\MRShenYang"}`，
+这是 **Unity**，不是本工具；同一时刻 `192.168.1.101:8765` 返回 `http=000`（本工具没启动）。
+所以老板口述的「安装工具也有 http://192.168.1.101:8099/」应理解为**本工具走 8765**，8099 属于 Unity 编辑器 —— 排查"打不开"时先确认你访问的是哪个端口、对应服务在不在。
+
 ---
 
 ## 2. 目录与关键文件
