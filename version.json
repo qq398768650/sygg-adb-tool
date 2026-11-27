@@ -1,9 +1,9 @@
 {
-  "version": "1.1.6",
-  "notes": "改名：和思易景区批量安装工具；修复设备卡片不显示（appsState 未定义）、fsa 状态读取失败静默",
+  "version": "1.1.7",
+  "notes": "投屏默认转发设备声音（去掉 --no-audio）",
   "files": {
-    "launcher.exe": "d61170f09545f9cddeeea1fb63e8a69f",
-    "web/server.py": "b807db7a0ac07d1bed0368d67ee465c3",
+    "launcher.exe": "f5e2e975e367bf638923955c655d49ff",
+    "web/server.py": "8367edbbd6d6865cb1858db8bffc2196",
     "web/index.html": "14dd8f816a3018a278d4e429c8a8ccfa",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",

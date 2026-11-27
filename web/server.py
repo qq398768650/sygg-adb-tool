@@ -574,11 +574,12 @@ SCRCPY = find_scrcpy()
 def launch_scrcpy(serial):
     """为指定设备启动 scrcpy 投屏窗口（独立进程，不阻塞网页）。
 
-    默认带 --render-driver=opengl --no-audio：
+    默认带 --render-driver=opengl：
     - 部分机型（实测 RK3566 / Android 11）在 scrcpy 3.x 的 D3D 渲染路径下画面**全绿**，
       换 OpenGL 渲染即正常，所以优先用 opengl；
-    - 这类机型的音频捕获本身会失败并持续刷 "Buffering threshold exceeded"，顺手关掉。
-    OpenGL 不可用的老机器上 scrcpy 会立刻退出，此时自动回退到默认参数（D3D + 音频）再开一次。
+    - 声音默认转发（scrcpy 3.x 走 Android 11+ 的 playback capture，实测 rk3566 正常）。
+      若某机型音频捕获失败，scrcpy 只会报错而画面照常，不影响投屏。
+    OpenGL 不可用的老机器上 scrcpy 会立刻退出，此时自动回退到默认参数（D3D）再开一次。
     """
     exe = SCRCPY or find_scrcpy()
     if not exe:
@@ -596,7 +597,7 @@ def launch_scrcpy(serial):
                 creationflags=0x00000008,   # DETACHED_PROCESS：关掉网页也不影响投屏
             )
 
-        proc = spawn(["--render-driver=opengl", "--no-audio"])
+        proc = spawn(["--render-driver=opengl"])
         time.sleep(1.5)                     # 给 scrcpy 一点时间：起不来会立刻退出
         if proc.poll() is None:
             return True, ""
