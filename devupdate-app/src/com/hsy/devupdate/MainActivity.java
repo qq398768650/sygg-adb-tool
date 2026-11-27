@@ -21,6 +21,8 @@ import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.text.TextUtils;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -80,6 +82,11 @@ public class MainActivity extends Activity {
     private volatile File readyApk = null;
     private volatile int newVc = 0;
     private volatile String newVn = "";
+    /** WiFi 延迟，例如「23 ms」/「超时」；空串表示还没测过（副标题就不显示） */
+    private volatile String netMs = "";
+    /** 上次测延迟的时间戳，避免每次 onResume 都 ping */
+    private volatile long netAt = 0;
+    private final Handler ui = new Handler(Looper.getMainLooper());
     private boolean autoChecked = false;
 
     @Override
@@ -113,6 +120,8 @@ public class MainActivity extends Activity {
         super.onResume();
         // 从 WiFi 页回来或网络变化后，副标题要跟着变
         refreshMenu();
+        // 刚连上/刚回到主页时网络可能还没稳，等 3 秒再测延迟
+        maybePing(3000);
     }
 
     @Override
@@ -134,6 +143,7 @@ public class MainActivity extends Activity {
     }
 
     private void refreshMenu() {
+        int sel = menu.getSelectedItemPosition();
         items.clear();
         items.add(new Item(MENU_WIFI, "连接 WiFi", wifiSub()));
         items.add(new Item(MENU_UPDATE, "检查更新", "从发布后台获取最新安装包"));
@@ -147,6 +157,8 @@ public class MainActivity extends Activity {
             items.add(new Item(MENU_ABOUT, "关于", "v" + myVersionName() + " · 设备：" + android.os.Build.MODEL));
         }
         adapter.notifyDataSetChanged();
+        // 测延迟是异步刷新的，别把用户刚移到的位置弹回第一项
+        if (sel > 0 && sel < items.size()) menu.setSelection(sel);
         if (menu.getChildCount() > 0) menu.requestFocus();
     }
 
@@ -179,18 +191,27 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** 已经连上 WiFi 就把名字显示出来，没连才提示去扫热点。 */
-    private String wifiSub() {
-        boolean onWifi = false;
+    /** 现在是不是走 WiFi 上网 */
+    private boolean onWifiNow() {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
-            if (cm != null) {
-                Network n = cm.getActiveNetwork();
-                NetworkCapabilities nc = n == null ? null : cm.getNetworkCapabilities(n);
-                onWifi = nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
-            }
-        } catch (Exception ignored) {
+            if (cm == null) return false;
+            Network n = cm.getActiveNetwork();
+            NetworkCapabilities nc = n == null ? null : cm.getNetworkCapabilities(n);
+            return nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI);
+        } catch (Exception e) {
+            return false;
         }
+    }
+
+    /** 已连接 WiFi 时在文案后面补一句延迟，没测出来就只显示名字 */
+    private String withPing(String s) {
+        return netMs.isEmpty() ? s : s + " · 延迟 " + netMs;
+    }
+
+    /** 已经连上 WiFi 就把名字显示出来，没连才提示去扫热点。 */
+    private String wifiSub() {
+        boolean onWifi = onWifiNow();
 
         String ssid = null;
         try {
@@ -210,9 +231,24 @@ public class MainActivity extends Activity {
         } catch (Exception ignored) {
         }
 
-        if (ssid != null && (onWifi || ssid.length() > 0)) return "已连接 " + ssid;
-        if (onWifi) return "已连接 WiFi（看不到名称，检查定位权限）";
+        if (ssid != null && (onWifi || ssid.length() > 0)) return withPing("已连接 " + ssid);
+        if (onWifi) return withPing("已连接 WiFi（看不到名称，检查定位权限）");
         return "扫描附近热点并输入密码";
+    }
+
+    /** 刚连上 WiFi 时网络还没稳，等 delayMs 再测；20 秒内测过的就不重复 ping。 */
+    private void maybePing(long delayMs) {
+        if (!onWifiNow()) return;
+        long now = System.currentTimeMillis();
+        if (now - netAt < 20000) return;
+        netAt = now;  // 先占位，避免连按几次返回键排队测多次
+        ui.postDelayed(() -> new Thread(() -> {
+            final String r = NetPing.label(MainActivity.this);
+            ui.post(() -> {
+                netMs = r;
+                refreshMenu();
+            });
+        }).start(), delayMs);
     }
 
     /** 现在是默认桌面吗（RoleManager.ROLE_HOME，Android 10+）。 */

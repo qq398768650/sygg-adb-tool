@@ -93,6 +93,8 @@ public class UpdateActivity extends Activity {
         boolean busy = false;
         /** 下载进度百分比（0~100），只用于列表里显示「下载中 45%」 */
         int pct = 0;
+        /** 当前下载速率，例如「12.3 MB/s」；没在下载就是空串 */
+        volatile String speed = "";
         /** 当前状态的一句话（差分合成中 / 排队安装 …） */
         String note = "";
     }
@@ -396,6 +398,7 @@ public class UpdateActivity extends Activity {
             sum += x.pct;
             if (sb.length() > 0) sb.append(" · ");
             sb.append(x.name).append(' ').append(x.pct).append('%');
+            if (x.speed != null && !x.speed.isEmpty()) sb.append(' ').append(x.speed);
             if (x.note != null && !x.note.isEmpty()) sb.append('（').append(x.note).append('）');
         }
         adapter.notifyDataSetChanged();
@@ -609,21 +612,28 @@ public class UpdateActivity extends Activity {
         byte[] buf = new byte[131072];
         long got = have;
         int n;
-        int lastPct = -1;
+        // 每 500ms 更新一次百分比和速率：太快刷屏没意义，太慢数字发木
+        long t0 = System.currentTimeMillis();
+        long b0 = got;
+        long nextUi = 0;
         while ((n = is.read(buf)) > 0) {
             os.write(buf, 0, n);
             got += n;
-            if (totalLen > 0) {
-                final int pct = (int) (got * 100 / totalLen);
-                if (pct != lastPct) {
-                    lastPct = pct;
-                    p.pct = pct;
-                    ui.post(new Runnable() {
-                        @Override public void run() { refreshDl(); }
-                    });
-                }
+            long now = System.currentTimeMillis();
+            if (now >= nextUi) {
+                nextUi = now + 500;
+                long dt = now - t0;
+                if (dt > 0) p.speed = speedText((got - b0) * 1000.0 / dt);
+                b0 = got;
+                t0 = now;
+                if (totalLen > 0) p.pct = (int) (got * 100 / totalLen);
+                ui.post(new Runnable() {
+                    @Override public void run() { refreshDl(); }
+                });
             }
         }
+        if (totalLen > 0) p.pct = 100;
+        p.speed = "";
         os.flush();
         os.close();
         is.close();
@@ -736,8 +746,15 @@ public class UpdateActivity extends Activity {
         }
     }
 
-    private static String human(long b) {
-        if (b >= 1024L * 1024 * 1024) return String.format("%.2f GB", b / 1073741824.0);
+    /** 字节/秒 → 「12.3 MB/s」 */
+    private static String speedText(double bps) {
+        if (bps <= 0) return "";
+        if (bps >= 1024 * 1024) return String.format(java.util.Locale.US, "%.1f MB/s", bps / 1048576.0);
+        if (bps >= 1024) return String.format(java.util.Locale.US, "%.0f KB/s", bps / 1024.0);
+        return String.format(java.util.Locale.US, "%.0f B/s", bps);
+    }
+
+    private static String human(long b) {        if (b >= 1024L * 1024 * 1024) return String.format("%.2f GB", b / 1073741824.0);
         if (b >= 1024L * 1024) return String.format("%.1f MB", b / 1048576.0);
         if (b >= 1024) return String.format("%.0f KB", b / 1024.0);
         return b + " B";
@@ -779,6 +796,7 @@ public class UpdateActivity extends Activity {
                 }
                 if (p.busy) {
                     sub.setText(local + " → " + latest + size + "   下载中 " + p.pct + "%"
+                            + (p.speed == null || p.speed.isEmpty() ? "" : " · " + p.speed)
                             + (p.note == null || p.note.isEmpty() ? "" : "（" + p.note + "）"));
                 } else if (p.note != null && !p.note.isEmpty()) {
                     sub.setText(local + " → " + latest + size + "   " + p.note);
