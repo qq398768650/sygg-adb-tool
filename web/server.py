@@ -1561,6 +1561,11 @@ def install_helper_one(serial):
             return {"ok": False, "error": text or "安装失败", "log": logs}
         rc2, _o2 = adb_shell(serial, ["appops", "set", HELPER_PKG,
                                       "REQUEST_INSTALL_PACKAGES", "allow"], timeout=30)
+        if rc2 != 0:
+            # appops set 在部分机型上即使生效也返回非 0，用 get 复核一下再下结论
+            _rc3, _o3 = adb_shell(serial, ["appops", "get", HELPER_PKG,
+                                           "REQUEST_INSTALL_PACKAGES"], timeout=30)
+            rc2 = 0 if "allow" in (_o3 or "") else rc2
         logs.append("REQUEST_INSTALL_PACKAGES = " + ("allow" if rc2 == 0 else "设置失败"))
 
         # 装完顺手设成 Device Owner（这样它能给业务 App 直接授运行时权限）
