@@ -1,10 +1,10 @@
 {
-  "version": "1.1.9",
-  "notes": "补打包 launcher.exe（1.1.8 只改了源码没重建 exe，导致「一键装助手」不生效）",
+  "version": "1.1.10",
+  "notes": "下载区默认显示并展开，不再需要 ?adv=1",
   "files": {
-    "launcher.exe": "0b6ce5093159d6775840da2293854554",
-    "web/server.py": "7905d04d66d520d36137c34e7e776664",
-    "web/index.html": "48c736de1cdbad1ab2856965d84daaba",
+    "launcher.exe": "4fa9c3919617a53960daeaec0274c17f",
+    "web/server.py": "42934ff230e6aef682989ba86e3e18f3",
+    "web/index.html": "c2e6938ee8fe9282f743c4d51a324547",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",
     "scrcpy/avcodec-61.dll": "b060e7f5fda9f824c42d5d78aeb8b0bd",

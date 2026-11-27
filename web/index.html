@@ -637,8 +637,8 @@
   <div class="col-main">
   <div class="panel">
     <h2><span class="n">1</span>选择 APK</h2>
-    <!-- 在线下载/发布需要访问密钥，默认隐藏；本机用 ?adv=1 打开（发给别人的版本看不到这个入口） -->
-    <div class="dlbox" id="dlBox" style="display:none">
+    <!-- 在线下载/发布（需要访问密钥才能拉到安装包） -->
+    <div class="dlbox" id="dlBox">
       <button class="dlhead" id="dlHead" type="button">
         <span>↓ 从链接下载安装包</span><span class="caret">▸</span>
       </button>
@@ -2754,8 +2754,9 @@ $('apiKey').value = '';
 localStorage.removeItem('arApiKey');
 $('apiKey').onchange = () => pkgLoad();
 $('apiKey').onkeydown = e => { if (e.key === 'Enter') { e.preventDefault(); pkgLoad(); } };
-// 整个下载/发布区块默认隐藏，只有本机带 ?adv=1 才露出来
-$('dlBox').style.display = new URLSearchParams(location.search).get('adv') === '1' ? '' : 'none';
+// 下载/发布区块对所有使用者可见，且默认展开（拉到具体安装包仍需访问密钥）
+$('dlBody').style.display = '';
+$('dlBox').classList.add('open');
 $('dlHead').onclick = () => dlToggle();
 $('pkgDl').onclick = pkgDownload;
 $('dlRetry').onclick = () => pkgDownload();
