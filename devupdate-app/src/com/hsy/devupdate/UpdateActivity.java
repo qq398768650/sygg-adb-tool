@@ -50,20 +50,20 @@ public class UpdateActivity extends Activity {
     // 与 Unity 工程 Assets/Editor/ScenicProjectMap.json 保持一致（新增景区要同步这里，否则列表里看不到）
     /** 内置兜底清单：网络拉不到 projects.json 时用它。新增景区请改 devupdate-app/projects.json，不用动这里。 */
     private static final String[][] DEFAULT_PROJECTS = {
-            {"shenyang_palace", "沈阳故宫"},
-            {"huangcheng", "皇城相府"},
-            {"niangziguan", "娘子关"},
-            {"yun_gang_shi_ku", "云冈石窟"},
-            {"song_chao_bu_ye_cheng", "宋潮不夜城"},
-            {"qiao_jia_da_yuan", "乔家大院"},
-            {"anhui_xidi", "安徽西递"},
-            {"jie_zhou_guan_di_miao", "解州关帝庙"},
-            {"zhang_bi_gu_bao", "张壁古堡"},
-            {"yu_ci_xian_ya", "榆次县衙"},
-            {"qufu_san_kong", "曲阜三孔"},
-            {"qinghuiyuan", "顺德清晖园"},
-            {"shenxi", "山西"},
-            {"ying_xian_mu_ta", "应县木塔"},
+            {"shenyang_palace", "沈阳故宫", "com.hsy.sygg"},
+            {"huangcheng", "皇城相府", "com.hsy.hcxf"},
+            {"niangziguan", "娘子关", "com.hsy.nzg"},
+            {"yun_gang_shi_ku", "云冈石窟", "com.hsy.ygsk"},
+            {"song_chao_bu_ye_cheng", "宋潮不夜城", "com.hsy.scbyc"},
+            {"qiao_jia_da_yuan", "乔家大院", "com.hsy.qjdy"},
+            {"anhui_xidi", "安徽西递", "com.hsy.xidi"},
+            {"jie_zhou_guan_di_miao", "解州关帝庙", "com.hsy.jzgdm"},
+            {"zhang_bi_gu_bao", "张壁古堡", "com.hsy.zbgb"},
+            {"yu_ci_xian_ya", "榆次县衙", "com.hsy.ycxy"},
+            {"ying_xian_mu_ta", "应县木塔", "com.hsy.yxmt"},
+            {"qufu_san_kong", "曲阜三孔", "com.hsy.qfsankong"},
+            {"qinghuiyuan", "顺德清晖园", ""},
+            {"shenxi", "山西", ""},
     };
 
     /**
@@ -232,6 +232,8 @@ public class UpdateActivity extends Activity {
             Proj pr = new Proj();
             pr.key = p[0];
             pr.name = p[1];
+            // 第三列是包名：断网时也能显示「本机 vX」，不用等 index.json
+            pr.pkg = p.length > 2 && p[2] != null ? p[2] : "";
             pr.idx = i++;
             items.add(pr);
         }
@@ -257,7 +259,7 @@ public class UpdateActivity extends Activity {
                         if (it == null) continue;
                         String k = it.optString("key", "").trim();
                         String n = it.optString("name", "").trim();
-                        if (!k.isEmpty() && !n.isEmpty()) got.add(new String[]{k, n});
+                        if (!k.isEmpty() && !n.isEmpty()) got.add(new String[]{k, n, it.optString("pkg", "").trim()});
                     }
                     if (got.isEmpty()) continue;
                     ui.post(new Runnable() {
@@ -303,7 +305,12 @@ public class UpdateActivity extends Activity {
         LoadTask(Proj p) { this.p = p; }
         @Override public void run() {
             try {
-                JSONObject idx = getJson(CDN + p.key + "/index.json");
+                // 先用清单里的包名查本机状态：断网时也能看到「本机 v60」，不至于以为什么都没装
+                if (p.pkg != null && !p.pkg.isEmpty()) {
+                    p.localVc = installedVersion(p.pkg);
+                    p.updatedAt = installedAt(p.pkg);
+                }
+                JSONObject idx = getJsonOrThrow(CDN + p.key + "/index.json");
                 if (idx == null) throw new RuntimeException("后台暂无发布记录");
                 int cur = idx.optInt("currentVersionCode", 0);
                 JSONObject best = null;
@@ -317,7 +324,8 @@ public class UpdateActivity extends Activity {
                 }
                 if (best == null) throw new RuntimeException("清单里没有当前版本");
                 p.latestVc = cur;
-                p.pkg = best.optString("packageName", "");
+                // 清单里的 pkg 兜底：后台没给 packageName 时别把已知包名清空（断网要靠它显示本机版本）
+                p.pkg = best.optString("packageName", p.pkg == null ? "" : p.pkg);
                 p.versionName = best.optString("versionName", "");
                 p.notes = best.optString("notes", "");
                 p.size = best.optLong("totalBytes", 0);
@@ -410,23 +418,30 @@ public class UpdateActivity extends Activity {
         setStatus("正在下载 " + n + " 个：" + sb);
     }
 
-    private void onPick(Proj p) {
+    private void onPick(final Proj p) {
         if (p.busy) { askCancel(p); return; }
         if (p.loading) { toast("还在检查这个项目"); return; }
-        if (!p.error.isEmpty()) { toast("检查失败：" + p.error); return; }
-        if (p.localVc >= p.latestVc) {
-            // 已经是最新：问一下要不要直接打开它（现场想看效果时不用再点遥控器找图标）
-            final Proj target = p;
+
+        // 本机装了的先能打开：没网或后台暂时查不到，也不能挡住「点进去看看」
+        final boolean canOpen = p.localVc >= 0;
+        final boolean hasNewer = p.error.isEmpty() && p.latestVc > 0 && p.localVc < p.latestVc;
+        if (canOpen && !hasNewer) {
+            StringBuilder msg = new StringBuilder("本机已安装 v").append(p.localVc);
+            if (!p.error.isEmpty()) msg.append("（").append(p.error).append("）");
+            else if (p.latestVc > 0 && p.localVc == p.latestVc) msg.append("，已是最新");
+            msg.append("，要现在打开它吗？");
             new AlertDialog.Builder(this)
                     .setTitle(p.name)
-                    .setMessage("本机已是最新 v" + p.localVc + "，要现在打开它吗？")
+                    .setMessage(msg.toString())
                     .setPositiveButton("打开", new android.content.DialogInterface.OnClickListener() {
-                        @Override public void onClick(android.content.DialogInterface d, int w) { openApp(target); }
+                        @Override public void onClick(android.content.DialogInterface d, int w) { openApp(p); }
                     })
                     .setNegativeButton("取消", null)
                     .show();
             return;
         }
+        if (!p.error.isEmpty()) { toast("检查失败：" + p.error); return; }
+        if (p.latestVc <= 0) { toast("后台暂无发布记录"); return; }
         download(p);
     }
 
@@ -761,6 +776,31 @@ public class UpdateActivity extends Activity {
         }
     }
 
+    /**
+     * 和 getJson 一样，但网络异常、非 200（404 除外）都会抛出来，
+     * 好让列表区分「后台真没发布」和「连不上服务器」。
+     */
+    private JSONObject getJsonOrThrow(String urlStr) throws Exception {
+        try {
+            HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
+            c.setConnectTimeout(8000);
+            c.setReadTimeout(12000);
+            c.setInstanceFollowRedirects(true);
+            int code = c.getResponseCode();
+            if (code == 404) return null;
+            if (code != 200) throw new RuntimeException("服务器返回 HTTP " + code);
+            InputStream is = c.getInputStream();
+            java.io.ByteArrayOutputStream bos = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = is.read(buf)) > 0) bos.write(buf, 0, n);
+            is.close();
+            return new JSONObject(new String(bos.toByteArray(), "UTF-8"));
+        } catch (java.io.IOException e) {
+            throw new java.io.IOException("连不上服务器，检查 WiFi", e);
+        }
+    }
+
     private JSONObject getJson(String urlStr) {
         HttpURLConnection c = null;
         try {
@@ -831,7 +871,9 @@ public class UpdateActivity extends Activity {
             if (p.loading) {
                 sub.setText("检查中…");
             } else if (!p.error.isEmpty()) {
-                sub.setText("— " + p.error);
+                // 没网/后台查不到时也要显示本机装的是哪版，不然看着像全没装
+                String local = p.localVc < 0 ? "未安装" : ("本机 v" + p.localVc);
+                sub.setText(local + " · " + p.error);
             } else {
                 String local = p.localVc < 0 ? "未安装" : ("本机 v" + p.localVc);
                 String latest = "最新 v" + p.latestVc + (p.versionName.isEmpty() ? "" : " (" + p.versionName + ")");
