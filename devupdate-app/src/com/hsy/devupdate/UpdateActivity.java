@@ -48,7 +48,8 @@ public class UpdateActivity extends Activity {
             "com.hsy.devupdate.INSTALL_RESULT";
 
     // 与 Unity 工程 Assets/Editor/ScenicProjectMap.json 保持一致（新增景区要同步这里，否则列表里看不到）
-    private static final String[][] PROJECTS = {
+    /** 内置兜底清单：网络拉不到 projects.json 时用它。新增景区请改 devupdate-app/projects.json，不用动这里。 */
+    private static final String[][] DEFAULT_PROJECTS = {
             {"shenyang_palace", "沈阳故宫"},
             {"huangcheng", "皇城相府"},
             {"niangziguan", "娘子关"},
@@ -62,6 +63,16 @@ public class UpdateActivity extends Activity {
             {"qufu_san_kong", "曲阜三孔"},
             {"qinghuiyuan", "顺德清晖园"},
             {"shenxi", "山西"},
+            {"ying_xian_mu_ta", "应县木塔"},
+    };
+
+    /**
+     * 景区清单的来源（按顺序试）：发布后台根目录的 projects.json 优先，
+     * 其次是我们自己仓库里的那份（jsDelivr）。都拿不到就用内置清单。
+     */
+    private static final String[] PROJECT_MIRRORS = {
+            "http://cdn2.vr.hoseavr.com/arasset/projects.json",
+            "https://cdn.jsdelivr.net/gh/qq398768650/sygg-adb-tool@main/devupdate-app/projects.json",
     };
 
     static class Proj {
@@ -80,6 +91,10 @@ public class UpdateActivity extends Activity {
         boolean loading = true;
         String error = "";
         boolean busy = false;
+        /** 下载进度百分比（0~100），只用于列表里显示「下载中 45%」 */
+        int pct = 0;
+        /** 当前状态的一句话（差分合成中 / 排队安装 …） */
+        String note = "";
     }
 
     private final List<Proj> items = new ArrayList<>();
@@ -91,6 +106,20 @@ public class UpdateActivity extends Activity {
     private ProgressBar progress;
     private UpAdapter adapter;
     private boolean downloading = false;
+    /** 活跃下载任务数：大于 0 时列表刷新要缓一缓，避免把正在下载的行状态冲掉 */
+    private int dlCount = 0;
+    /** 下载完等待安装的任务（一次只弹一个系统安装框） */
+    private final java.util.ArrayDeque<Job> jobs = new java.util.ArrayDeque<Job>();
+    private boolean installing = false;
+    /** 当前正在安装的那个任务（安装回调回来时用它清状态） */
+    private Job current = null;
+
+    /** 一个待安装任务：下载好的 APK + 对应的项目 */
+    static class Job {
+        final File apk;
+        final Proj p;
+        Job(File apk, Proj p) { this.apk = apk; this.p = p; }
+    }
     /** 本次下载方式的一句话结论（差分复用 N 块 / 整包 X），安装完成后仍显示给用户看 */
     private volatile String readyInfo = "";
     /** 本次正在安装的包名，安装成功后用它补授权 */
@@ -141,9 +170,17 @@ public class UpdateActivity extends Activity {
                     // 覆盖安装：系统保留原有授权，不用再授一遍
                     setStatus(base + " · 权限沿用原有授权");
                 }
+                installing = false;
+                if (current != null) { current.p.note = ""; current = null; }
                 loadAll();
+                ui.post(new Runnable() {
+                    @Override public void run() { pumpInstall(); }
+                });
             } else if (st != -999) {
+                installing = false;
+                if (current != null) { current.p.note = ""; current = null; }
                 setStatus("安装未完成（status=" + st + "）" + (msg == null ? "" : "：" + msg));
+                pumpInstall();
             }
         }
     };
@@ -167,8 +204,9 @@ public class UpdateActivity extends Activity {
             @Override public void onClick(View v) { loadAll(); }
         });
         registerReceiver(installReceiver, new IntentFilter(ACTION_INSTALL));
-        buildItems();
+        buildItems(DEFAULT_PROJECTS);
         loadAll();
+        loadProjects();
     }
 
     @Override
@@ -178,10 +216,10 @@ public class UpdateActivity extends Activity {
         super.onDestroy();
     }
 
-    private void buildItems() {
+    private void buildItems(String[][] src) {
         items.clear();
         int i = 0;
-        for (String[] p : PROJECTS) {
+        for (String[] p : src) {
             Proj pr = new Proj();
             pr.key = p[0];
             pr.name = p[1];
@@ -189,6 +227,51 @@ public class UpdateActivity extends Activity {
             items.add(pr);
         }
         adapter.notifyDataSetChanged();
+    }
+
+    /**
+     * 从网络拉景区清单：新景区加进后台/仓库的 projects.json 就能出现，不用重装 APK。
+     * 拉不到就继续用内置清单，不影响使用。
+     */
+    private void loadProjects() {
+        pool.execute(new Runnable() {
+            @Override public void run() {
+                for (String u : PROJECT_MIRRORS) {
+                    String url = u + (u.contains("?") ? "&" : "?") + "t=" + System.currentTimeMillis();
+                    JSONObject o = getJson(url);
+                    if (o == null) continue;
+                    JSONArray a = o.optJSONArray("projects");
+                    if (a == null || a.length() == 0) continue;
+                    final List<String[]> got = new ArrayList<String[]>();
+                    for (int i = 0; i < a.length(); i++) {
+                        JSONObject it = a.optJSONObject(i);
+                        if (it == null) continue;
+                        String k = it.optString("key", "").trim();
+                        String n = it.optString("name", "").trim();
+                        if (!k.isEmpty() && !n.isEmpty()) got.add(new String[]{k, n});
+                    }
+                    if (got.isEmpty()) continue;
+                    ui.post(new Runnable() {
+                        @Override public void run() { applyProjects(got); }
+                    });
+                    return;
+                }
+            }
+        });
+    }
+
+    /** 网络清单和当前列表不一样就重建并重新检查版本。 */
+    private void applyProjects(List<String[]> got) {
+        boolean same = got.size() == items.size();
+        if (same) {
+            for (int i = 0; i < got.size(); i++) {
+                if (!got.get(i)[0].equals(items.get(i).key)) { same = false; break; }
+            }
+        }
+        if (same) return;
+        buildItems(got.toArray(new String[got.size()][]));
+        loadAll();
+        toast("景区清单已更新（" + got.size() + " 个）");
     }
 
     private void loadAll() {
@@ -295,8 +378,30 @@ public class UpdateActivity extends Activity {
         if (status != null) status.setText(s);
     }
 
+    /**
+     * 刷新下载区：允许多个项目同时下载，状态行列出每个任务，进度条显示平均进度。
+     * 只在主线程调用。
+     */
+    private void refreshDl() {
+        int n = 0, sum = 0;
+        StringBuilder sb = new StringBuilder();
+        for (Proj x : items) {
+            if (!x.busy) continue;
+            n++;
+            sum += x.pct;
+            if (sb.length() > 0) sb.append(" · ");
+            sb.append(x.name).append(' ').append(x.pct).append('%');
+            if (x.note != null && !x.note.isEmpty()) sb.append('（').append(x.note).append('）');
+        }
+        adapter.notifyDataSetChanged();
+        if (n == 0) return;
+        progress.setVisibility(View.VISIBLE);
+        progress.setProgress(sum / n);
+        setStatus("正在下载 " + n + " 个：" + sb);
+    }
+
     private void onPick(Proj p) {
-        if (downloading) { toast("正在下载，请稍候"); return; }
+        if (p.busy) { toast("这个已经在下载了，等它下完"); return; }
         if (p.loading) { toast("还在检查这个项目"); return; }
         if (!p.error.isEmpty()) { toast("检查失败：" + p.error); return; }
         if (p.localVc >= p.latestVc) {
@@ -316,12 +421,12 @@ public class UpdateActivity extends Activity {
     }
 
     private void download(final Proj p) {
+        dlCount++;
         downloading = true;
         p.busy = true;
-        adapter.notifyDataSetChanged();
-        progress.setVisibility(View.VISIBLE);
-        progress.setProgress(0);
-        setStatus("准备下载 " + p.name + " v" + p.latestVc + " …");
+        p.pct = 0;
+        p.note = "";
+        refreshDl();
         pool.execute(new Runnable() {
             @Override public void run() {
                 File out = null;
@@ -371,11 +476,10 @@ public class UpdateActivity extends Activity {
                                         @Override public void onProgress(int pct, String note) {
                                             final int v = Math.max(0, Math.min(100, pct));
                                             final String s = note;
+                                            p.pct = v;
+                                            p.note = s;
                                             ui.post(new Runnable() {
-                                                @Override public void run() {
-                                                    progress.setProgress(v);
-                                                    setStatus(s);
-                                                }
+                                                @Override public void run() { refreshDl(); }
                                             });
                                         }
                                     });
@@ -404,7 +508,7 @@ public class UpdateActivity extends Activity {
                             });
                         }
                         if (!patched) {
-                            downloadFile(url, out, apkSize);
+                            downloadFile(url, out, apkSize, p);
                             readyInfo = "整包下载 " + human(apkSize);
                         }
                     }
@@ -414,9 +518,10 @@ public class UpdateActivity extends Activity {
                             setStatus("下载完成，正在安装…");
                         }
                     });
-                    installingPkg = p.pkg;
-                    installingIsNew = p.localVc < 0;
-                    installApk(out, p.pkg);
+                    final File fin = out;
+                    ui.post(new Runnable() {
+                        @Override public void run() { enqueueInstall(fin, p); }
+                    });
                 } catch (Exception e) {
                     final String msg = (e.getMessage() == null ? e.toString() : e.getMessage());
                     ui.post(new Runnable() {
@@ -426,12 +531,15 @@ public class UpdateActivity extends Activity {
                         }
                     });
                 } finally {
-                    downloading = false;
                     p.busy = false;
+                    p.note = "";
+                    dlCount--;
+                    if (dlCount < 0) dlCount = 0;
+                    if (dlCount == 0) downloading = false;
                     ui.post(new Runnable() {
                         @Override public void run() {
-                            adapter.notifyDataSetChanged();
-                            progress.setVisibility(View.GONE);
+                            refreshDl();   // 还有别的任务在跑就继续显示汇总
+                            if (dlCount == 0) progress.setVisibility(View.GONE);
                         }
                     });
                 }
@@ -468,7 +576,7 @@ public class UpdateActivity extends Activity {
         }
     }
 
-    private void downloadFile(String urlStr, File out, long total) throws Exception {
+    private void downloadFile(String urlStr, File out, long total, final Proj p) throws Exception {
         HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
         c.setConnectTimeout(20000);
         c.setReadTimeout(60000);
@@ -490,13 +598,9 @@ public class UpdateActivity extends Activity {
                 final int pct = (int) (got * 100 / len);
                 if (pct != lastPct) {
                     lastPct = pct;
-                    final long fGot = got;
-                    final long fLen = len;
+                    p.pct = pct;
                     ui.post(new Runnable() {
-                        @Override public void run() {
-                            progress.setProgress(pct);
-                            setStatus("下载中 " + pct + "%（" + human(fGot) + " / " + human(fLen) + "）");
-                        }
+                        @Override public void run() { refreshDl(); }
                     });
                 }
             }
@@ -505,6 +609,37 @@ public class UpdateActivity extends Activity {
         os.close();
         is.close();
         c.disconnect();
+    }
+
+    /** 下载完的任务排进安装队列——系统一次只弹一个安装确认框，串着来才不会互相顶掉。 */
+    private void enqueueInstall(File apk, Proj p) {
+        synchronized (jobs) { jobs.add(new Job(apk, p)); }
+        p.note = "排队安装";
+        adapter.notifyDataSetChanged();
+        pumpInstall();
+    }
+
+    /** 取队列里的下一个任务开始安装；安装回调回来后会再调一次。 */
+    private void pumpInstall() {
+        if (installing) return;
+        Job j;
+        synchronized (jobs) { j = jobs.poll(); }
+        if (j == null) return;
+        installing = true;
+        current = j;
+        installingPkg = j.p.pkg;
+        installingIsNew = j.p.localVc < 0;
+        j.p.note = "安装中";
+        adapter.notifyDataSetChanged();
+        try {
+            installApk(j.apk, j.p.pkg);
+        } catch (Exception e) {
+            installing = false;
+            j.p.note = "";
+            current = null;
+            setStatus("安装失败（" + j.p.name + "）：" + e.getMessage());
+            pumpInstall();
+        }
     }
 
     private void installApk(File apk, String pkg) throws Exception {
@@ -620,7 +755,12 @@ public class UpdateActivity extends Activity {
                 } else {
                     sub.setText(local + " → " + latest + size + "   ⬆ 可更新");
                 }
-                if (p.busy) sub.setText(local + " → " + latest + size + "   下载中…");
+                if (p.busy) {
+                    sub.setText(local + " → " + latest + size + "   下载中 " + p.pct + "%"
+                            + (p.note == null || p.note.isEmpty() ? "" : "（" + p.note + "）"));
+                } else if (p.note != null && !p.note.isEmpty()) {
+                    sub.setText(local + " → " + latest + size + "   " + p.note);
+                }
             }
             return v;
         }

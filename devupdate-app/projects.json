@@ -1,0 +1,20 @@
+{
+  "_说明": "设备更新助手的景区清单。App 启动时会从网络拉这个文件；有新景区时改这里 + 推送即可，不用重打 APK。字段：key = CDN 目录名（http://cdn2.vr.hoseavr.com/arasset/<key>/index.json），name = 显示名。",
+  "updatedAt": "2026-11-27",
+  "projects": [
+    { "key": "shenyang_palace", "name": "沈阳故宫" },
+    { "key": "huangcheng", "name": "皇城相府" },
+    { "key": "niangziguan", "name": "娘子关" },
+    { "key": "yun_gang_shi_ku", "name": "云冈石窟" },
+    { "key": "song_chao_bu_ye_cheng", "name": "宋潮不夜城" },
+    { "key": "qiao_jia_da_yuan", "name": "乔家大院" },
+    { "key": "anhui_xidi", "name": "安徽西递" },
+    { "key": "jie_zhou_guan_di_miao", "name": "解州关帝庙" },
+    { "key": "zhang_bi_gu_bao", "name": "张壁古堡" },
+    { "key": "yu_ci_xian_ya", "name": "榆次县衙" },
+    { "key": "ying_xian_mu_ta", "name": "应县木塔" },
+    { "key": "qufu_san_kong", "name": "曲阜三孔" },
+    { "key": "qinghuiyuan", "name": "顺德清晖园" },
+    { "key": "shenxi", "name": "山西" }
+  ]
+}

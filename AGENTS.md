@@ -228,7 +228,10 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - **连 WiFi**：扫描（`startScan` + SCAN_RESULTS，需 ACCESS_FINE_LOCATION）→ 选热点 → D-pad 软键盘输密码 →
   `WifiNetworkSuggestion` + `addNetworkSuggestions`（status 0 成功、3 重复也算成功）→ `disconnect()` 促使重选 → 轮询 `getConnectionInfo()`。
   首次会弹系统「是否允许连接到建议的 WLAN」，用遥控器按确认即可，之后不再弹。
-- **检查更新**：内置项目清单 `UpdateActivity.PROJECTS`（13 个 key，**与 Unity 工程 `D:\UnityWork2026\MRShenYang\Assets\Editor\ScenicProjectMap.json` 同步**；新增景区必须同时改这里并重新打 APK，否则列表里看不到——CDN 不支持列举目录，没有项目清单接口），直接读公开 CDN（**不需要 api_key**）
+- **检查更新**：景区清单走网络文件 `devupdate-app/projects.json`（App 启动时先试 `http://cdn2.vr.hoseavr.com/arasset/projects.json`，再试 jsDelivr 的
+  `.../devupdate-app/projects.json`，都失败才用内置 `UpdateActivity.DEFAULT_PROJECTS` 兜底）。
+  **新增景区只改 `projects.json` + 推送 + purge jsDelivr，不用重打 APK**；内置兜底清单也应顺手补一条，防止设备没网时列表缺项。
+  直接读公开 CDN（**不需要 api_key**）
   `http://cdn2.vr.hoseavr.com/arasset/{proj}/index.json` → `currentVersionCode` + 对应版本的 packageName；
   `{proj}/v{vc}/meta.json` → `.apk` 文件名与大小 → `{CDN}{proj}/v{vc}/{apkName}`。
   本机版本用 `PackageManager.getPackageInfo`，需要 **`QUERY_ALL_PACKAGES`** 权限，否则 Android 11 包可见性会让别的 App 一律显示「未安装」。
