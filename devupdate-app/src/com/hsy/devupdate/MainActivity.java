@@ -21,6 +21,7 @@ import android.net.NetworkCapabilities;
 import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.os.Handler;
 import android.os.Looper;
 import android.text.TextUtils;
@@ -697,7 +698,26 @@ public class MainActivity extends Activity {
     }
 
     /** 用 PackageInstaller 装自己：不是 Device Owner，系统会弹确认框，遥控器按「安装」 */
-    private void installSelf(File apk) {
+    private void installSelf(final File apk) {
+        // 先试本地 adbd 静默安装（无系统确认框）；装自己会杀进程，系统随后会自动重启本 App
+        new Thread(new Runnable() {
+            @Override public void run() {
+                if (!AdbLocal.available()) { installSelfViaInstaller(apk); return; }
+                String path = apk.getAbsolutePath();
+                String cmd = "pm install -r -g '" + path.replace("'", "'\''") + "'";
+                Log.i("MainActivity", "adbd 自更新: " + cmd);
+                String out = AdbLocal.shell(cmd, 240000);
+                Log.i("MainActivity", "adbd 自更新结果: " + out);
+                if (out != null && out.contains("Success")) {
+                    toastMain("已静默安装新版本");
+                } else {
+                    installSelfViaInstaller(apk);
+                }
+            }
+        }).start();
+    }
+
+    private void installSelfViaInstaller(File apk) {
         PackageInstaller.Session session = null;
         try {
             PackageInstaller pi = getPackageManager().getPackageInstaller();

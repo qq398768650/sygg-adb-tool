@@ -11,6 +11,7 @@ import android.content.pm.PackageInfo;
 import android.content.pm.PackageInstaller;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.util.Log;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.LayoutInflater;
@@ -713,18 +714,44 @@ public class UpdateActivity extends Activity {
         installingIsNew = j.p.localVc < 0;
         j.p.note = "安装中";
         adapter.notifyDataSetChanged();
-        try {
-            installApk(j.apk, j.p.pkg);
-        } catch (Exception e) {
-            installing = false;
-            j.p.note = "";
-            current = null;
-            setStatus("安装失败（" + j.p.name + "）：" + e.getMessage());
-            pumpInstall();
-        }
+        final Job job = j;
+        // 放到后台线程：本地 adbd 静默安装要走 socket，主线程会抛 NetworkOnMainThreadException
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    installApk(job.apk, job.p.pkg);
+                } catch (final Exception e) {
+                    ui.post(new Runnable() {
+                        @Override public void run() {
+                            installing = false;
+                            job.p.note = "";
+                            current = null;
+                            setStatus("安装失败（" + job.p.name + "）：" + e.getMessage());
+                            pumpInstall();
+                        }
+                    });
+                }
+            }
+        }).start();
     }
 
     private void installApk(File apk, String pkg) throws Exception {
+        // 首选本地 adbd 静默安装：直接 pm install，不弹系统确认框，
+        // 也就不存在「焦点默认落在取消上」的问题。失败再退回 PackageInstaller。
+        if (AdbLocal.available()) {
+            String path = apk.getAbsolutePath();
+            String cmd = "pm install -r -g '" + path.replace("'", "'\''") + "'";
+            Log.i("UpdateActivity", "adbd 静默安装: " + cmd);
+            String out = AdbLocal.shell(cmd, 240000);
+            Log.i("UpdateActivity", "adbd 静默安装结果: " + out);
+            if (out != null && out.contains("Success")) {
+                Intent ok = new Intent(ACTION_INSTALL).setPackage(getPackageName());
+                ok.putExtra(PackageInstaller.EXTRA_STATUS, PackageInstaller.STATUS_SUCCESS);
+                sendBroadcast(ok);
+                return;
+            }
+            Log.w("UpdateActivity", "adbd 静默安装没成功，回退系统安装框");
+        }
         PackageInstaller pi = getPackageManager().getPackageInstaller();
         PackageInstaller.SessionParams sp = new PackageInstaller.SessionParams(
                 PackageInstaller.SessionParams.MODE_FULL_INSTALL);
