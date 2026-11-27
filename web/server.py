@@ -1258,6 +1258,39 @@ def push_fsa_dir(serial, fsa_src, log, step, pkg=None):
             shutil.rmtree(tmp_root, ignore_errors=True)
 
 
+def helper_installed(serial):
+    """设备上是否已经装了「安装包更新」助手。"""
+    try:
+        rc, out = adb_shell(serial, ["shell", "pm", "list", "packages", HELPER_PKG], timeout=30)
+        return rc == 0 and HELPER_PKG in (out or "")
+    except Exception:
+        return False
+
+
+def ensure_helper(serial):
+    """并行装机时顺带确保「安装包更新」助手在设备上；已装过就跳过。
+
+    只做两件事：装 APK（-r -g 覆盖到当前版本）+ 放开「安装未知应用」。
+    **不动 Device Owner**——现场 DO 归业务 App，抢过来会影响它静默安装。
+    返回 (ok, 说明文字)。
+    """
+    if helper_installed(serial):
+        return True, "已安装，跳过"
+    apk = helper_apk_path()
+    if not apk or not os.path.isfile(apk):
+        return False, "跳过（找不到 devupdate-app/DevUpdate.apk）"
+    try:
+        rc, out = adb_shell(serial, ["install", "-r", "-g", apk], timeout=300)
+        text = (out or "").strip()
+        if rc != 0 or "success" not in text.lower():
+            return False, "安装失败：" + (text.splitlines()[-1] if text else "未知原因")
+        adb_shell(serial, ["shell", "appops", "set", HELPER_PKG,
+                           "REQUEST_INSTALL_PACKAGES", "allow"], timeout=30)
+        return True, "已安装"
+    except Exception as e:
+        return False, "安装异常：" + str(e)
+
+
 def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
     # 流程严格对齐 install.bat（已验证能跑通）：
     # install -> root -> 按需开WiFi/蓝牙 -> 连WiFi -> grant(静默) ->
@@ -1282,6 +1315,14 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         log(serial, "       [Auto] 包名以 APK 内识别结果为准（已忽略输入值）")
     log(serial, f" WiFi    : {wifi_ssid}")
     log(serial, "=" * 50)
+
+    # 先把「安装包更新」助手放到设备上（已装过就跳过），
+    # 万一业务 App 装坏/打不开，现场还能用它连 WiFi、拉新包。
+    try:
+        h_ok, h_msg = ensure_helper(serial)
+        log(serial, f" 更新助手: {h_msg}")
+    except Exception as e:
+        log(serial, f" 更新助手: 跳过（{e}）")
 
     # 采集该设备 MAC / ANDROID_ID（设备此刻在线），存到状态记录，即使之后离线也保留
     try:
@@ -1559,11 +1600,11 @@ def install_helper_one(serial):
                 logs.append(ln)
         if rc != 0 or "success" not in text.lower():
             return {"ok": False, "error": text or "安装失败", "log": logs}
-        rc2, _o2 = adb_shell(serial, ["appops", "set", HELPER_PKG,
+        rc2, _o2 = adb_shell(serial, ["shell", "appops", "set", HELPER_PKG,
                                       "REQUEST_INSTALL_PACKAGES", "allow"], timeout=30)
         if rc2 != 0:
             # appops set 在部分机型上即使生效也返回非 0，用 get 复核一下再下结论
-            _rc3, _o3 = adb_shell(serial, ["appops", "get", HELPER_PKG,
+            _rc3, _o3 = adb_shell(serial, ["shell", "appops", "get", HELPER_PKG,
                                            "REQUEST_INSTALL_PACKAGES"], timeout=30)
             rc2 = 0 if "allow" in (_o3 or "") else rc2
         logs.append("REQUEST_INSTALL_PACKAGES = " + ("allow" if rc2 == 0 else "设置失败"))

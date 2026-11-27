@@ -1,9 +1,9 @@
 {
-  "version": "1.1.10",
-  "notes": "下载区默认显示并展开，不再需要 ?adv=1",
+  "version": "1.2.0",
+  "notes": "并行安装顺带装「安装包更新」助手（已装则跳过）；修复 appops/pm 调用漏 shell 前缀",
   "files": {
-    "launcher.exe": "4fa9c3919617a53960daeaec0274c17f",
-    "web/server.py": "42934ff230e6aef682989ba86e3e18f3",
+    "launcher.exe": "1cc34aed29d3b3e00881f3416f06ce68",
+    "web/server.py": "8fdd75d1b54ba7534a7eb2db9e4a8abb",
     "web/index.html": "c2e6938ee8fe9282f743c4d51a324547",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",

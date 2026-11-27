@@ -154,6 +154,20 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 - `parse_apk_manifest()` / `parse_apk_permissions()` —— 纯 Python 解析二进制 `AndroidManifest.xml`（不依赖 aapt）
 - 并行安装：每台设备一个线程跑 `install_one`
 
+### 6.1.1 并行安装顺带装「安装包更新」助手
+
+`install_one()` 在开始装业务 APK 之前会调 `ensure_helper(serial)`：
+
+- 设备上已经有 `com.hsy.devupdate` → 直接跳过（不重复装）
+- 没有 → `adb install -r -g devupdate-app/DevUpdate.apk` + 放开「安装未知应用」
+
+**只装 APK，不动 Device Owner**：现场 DO 归业务 App，抢过来会让它失去静默安装能力；
+要抢 DO 走独立的「一键装助手」按钮（`POST /api/install_helper`）。
+
+⚠ 坑：`adb_shell(serial, args)` 等价 `adb -s <serial> <args>`，**不会自动加 `shell` 前缀**，
+`pm` / `appops` / `dumpsys` / `getprop` 这类必须自己写成 `["shell", "pm", ...]`，
+否则返回 `adb.EXE: unknown command pm`（且容易被 `except` 吞掉变成"没装过"）。
+
 ### 6.2 权限
 `RUNTIME_PERMS`（14 个运行时权限）+ `APPOP_PERMS`（`MANAGE_EXTERNAL_STORAGE` / `SYSTEM_ALERT_WINDOW` / `POST_NOTIFICATION` / `REQUEST_INSTALL_PACKAGES`）。
 `grant_permissions(serial, pkg, declared)` 只对 **APK 清单里声明过的** 权限执行 `pm grant`；未声明的记 `[SKIP]` 而不是 `[FAIL]`（避免 `SecurityException` 刷屏）。
