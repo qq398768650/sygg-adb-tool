@@ -36,6 +36,11 @@ public final class PatchBuilder {
         void onProgress(int pct, String note);
     }
 
+    /** 外部取消：返回 true 时尽快抛异常退出，调用方自己决定怎么处理 */
+    public interface Cancel {
+        boolean cancelled();
+    }
+
     public static class Result {
         public boolean ok;
         public long newSize;
@@ -54,6 +59,10 @@ public final class PatchBuilder {
      * @param out      合成后的输出文件
      */
     public static Result build(File oldApk, String patchUrl, String apkUrl, File out, Progress cb) {
+        return build(oldApk, patchUrl, apkUrl, out, cb, null);
+    }
+
+    public static Result build(File oldApk, String patchUrl, String apkUrl, File out, Progress cb, Cancel cancel) {
         Result r = new Result();
         if (oldApk == null || !oldApk.exists() || oldApk.length() <= 0) {
             r.error = "读不到已安装的旧包";
@@ -92,6 +101,7 @@ public final class PatchBuilder {
                 long walked = 0;
 
                 for (int i = 0; i < blocks.length(); i++) {
+                    if (cancel != null && cancel.cancelled()) throw new RuntimeException("已取消");
                     JSONObject b = blocks.optJSONObject(i);
                     if (b == null) continue;
                     long o = b.optLong("o", -1);

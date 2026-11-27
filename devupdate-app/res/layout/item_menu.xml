@@ -36,6 +36,24 @@
             android:textStyle="bold"
             android:textColor="#FFFFFF"
             android:visibility="gone" />
+
+        <!-- 下载中才显示：点这一行或点这里都会问「要取消吗」 -->
+        <TextView
+            android:id="@+id/it_cancel"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/badge_red"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="5dp"
+            android:paddingBottom="5dp"
+            android:text="✖ 取消"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="#FFFFFF"
+            android:focusable="false"
+            android:visibility="gone" />
     </LinearLayout>
 
     <TextView

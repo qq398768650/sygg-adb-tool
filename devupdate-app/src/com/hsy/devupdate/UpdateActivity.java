@@ -95,6 +95,8 @@ public class UpdateActivity extends Activity {
         int pct = 0;
         /** 当前下载速率，例如「12.3 MB/s」；没在下载就是空串 */
         volatile String speed = "";
+        /** 用户点了取消：下载循环看到就停（已下好的部分保留，下次续传） */
+        volatile boolean cancel = false;
         /** 当前状态的一句话（差分合成中 / 排队安装 …） */
         String note = "";
     }
@@ -409,7 +411,7 @@ public class UpdateActivity extends Activity {
     }
 
     private void onPick(Proj p) {
-        if (p.busy) { toast("这个已经在下载了，等它下完"); return; }
+        if (p.busy) { askCancel(p); return; }
         if (p.loading) { toast("还在检查这个项目"); return; }
         if (!p.error.isEmpty()) { toast("检查失败：" + p.error); return; }
         if (p.localVc >= p.latestVc) {
@@ -428,11 +430,27 @@ public class UpdateActivity extends Activity {
         download(p);
     }
 
+    /** 下载中点这一行就是「取消」，先问一句，避免误触把几百兆的进度停了。 */
+    private void askCancel(final Proj p) {
+        new AlertDialog.Builder(this)
+                .setTitle(p.name)
+                .setMessage("正在下载 " + p.pct + "%，要取消吗？\n已下载的部分会保留，下次点它会接着下。")
+                .setPositiveButton("取消下载", new android.content.DialogInterface.OnClickListener() {
+                    @Override public void onClick(android.content.DialogInterface d, int w) {
+                        p.cancel = true;
+                        toast("正在取消…");
+                    }
+                })
+                .setNegativeButton("继续下载", null)
+                .show();
+    }
+
     private void download(final Proj p) {
         dlCount++;
         downloading = true;
         p.busy = true;
         p.pct = 0;
+        p.cancel = false;
         p.note = "";
         refreshDl();
         pool.execute(new Runnable() {
@@ -490,8 +508,12 @@ public class UpdateActivity extends Activity {
                                                 @Override public void run() { refreshDl(); }
                                             });
                                         }
+                                    },
+                                    new PatchBuilder.Cancel() {
+                                        @Override public boolean cancelled() { return p.cancel; }
                                     });
                             patched = pr.ok;
+                            if (!patched && p.cancel) throw new CancelledException();
                             if (patched) {
                                 final String info = "差分完成：复用 " + pr.localBlocks
                                         + " 块，实际下载 " + human(pr.downloaded)
@@ -520,6 +542,7 @@ public class UpdateActivity extends Activity {
                             readyInfo = "整包下载 " + human(apkSize);
                         }
                     }
+                    if (p.cancel) throw new CancelledException();
                     ui.post(new Runnable() {
                         @Override public void run() {
                             progress.setProgress(100);
@@ -531,14 +554,27 @@ public class UpdateActivity extends Activity {
                         @Override public void run() { enqueueInstall(fin, p); }
                     });
                 } catch (Exception e) {
-                    final String msg = (e.getMessage() == null ? e.toString() : e.getMessage());
-                    ui.post(new Runnable() {
-                        @Override public void run() {
-                            setStatus("下载失败：" + msg);
-                            toast("下载失败：" + msg);
-                        }
-                    });
+                    if (e instanceof CancelledException) {
+                        ui.post(new Runnable() {
+                            @Override public void run() {
+                                setStatus("已取消下载：" + p.name + "（已下的部分保留，可以再点它继续）");
+                            }
+                        });
+                    } else {
+                        final String msg = (e.getMessage() == null ? e.toString() : e.getMessage());
+                        ui.post(new Runnable() {
+                            @Override public void run() {
+                                setStatus("下载失败：" + msg);
+                                toast("下载失败：" + msg);
+                            }
+                        });
+                    }
                 } finally {
+                    if (p.cancel) {
+                        p.cancel = false;
+                        p.pct = 0;
+                        p.speed = "";
+                    }
                     p.busy = false;
                     p.note = "";
                     dlCount--;
@@ -617,6 +653,7 @@ public class UpdateActivity extends Activity {
         long b0 = got;
         long nextUi = 0;
         while ((n = is.read(buf)) > 0) {
+            if (p.cancel) throw new CancelledException();
             os.write(buf, 0, n);
             got += n;
             long now = System.currentTimeMillis();
@@ -747,6 +784,11 @@ public class UpdateActivity extends Activity {
     }
 
     /** 字节/秒 → 「12.3 MB/s」 */
+    /** 用户点了「取消下载」：从下载循环里跳出来，不当成失败处理，也不弹错误提示。 */
+    private static class CancelledException extends RuntimeException {
+        CancelledException() { super("已取消"); }
+    }
+
     private static String speedText(double bps) {
         if (bps <= 0) return "";
         if (bps >= 1024 * 1024) return String.format(java.util.Locale.US, "%.1f MB/s", bps / 1048576.0);
@@ -778,7 +820,14 @@ public class UpdateActivity extends Activity {
             Proj p = items.get(i);
             TextView t = v.findViewById(R.id.it_title);
             TextView sub = v.findViewById(R.id.it_sub);
+            TextView cxl = v.findViewById(R.id.it_cancel);
             t.setText(p.name);
+            // 下载中的行右侧给一个「✖ 取消」；D-pad 上直接对这一行按确认也一样会问
+            cxl.setVisibility(p.busy ? View.VISIBLE : View.GONE);
+            final Proj cancelTarget = p;
+            cxl.setOnClickListener(new View.OnClickListener() {
+                @Override public void onClick(View x) { askCancel(cancelTarget); }
+            });
             if (p.loading) {
                 sub.setText("检查中…");
             } else if (!p.error.isEmpty()) {

@@ -234,6 +234,7 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
   - **可以同时下载多个**（线程池 4），状态行显示「正在下载 N 个：A 12% · B 45%」，安装走队列一次弹一个。
   - **返回主界面不会中断下载**：`onDestroy()` 用 `pool.shutdown()` 而不是 `shutdownNow()`，正在写的文件让它写完；中途真断了，重新点同一项会用 `Range: bytes=<已有长度>-` 续传（`downloadFile` 末尾校验 `out.length() == total`，不完整就报错让用户再点一次）。
   - **下载速率**：`downloadFile` 每 500ms 算一次瞬时速率写进 `Proj.speed`，列表行显示「下载中 20% · 12.3 MB/s」，状态行也带一份。
+  - **取消下载**：下载中的行右侧显示红色「✖ 取消」，选中这一行按确认（`onPick` 里 `p.busy` 分支 → `askCancel`）会问「要取消吗」；确认后 `p.cancel = true`，`downloadFile` 循环抛 `CancelledException` 立刻停，**已下的部分保留**，再点同一项从断点续传。差分阶段（`PatchBuilder.build` 第 6 个参数 `Cancel`）也会在块循环里检查取消。
   - **网络延迟**：`NetPing.label()` 先 ping 网关（`DhcpInfo.gateway`），网关不通退 `114.114.114.114`；主页「连接 WiFi」副标题显示「已连接 X · 延迟 9 ms」。刚连上时网络没稳，`onResume()` 延迟 3 秒才测，20 秒内不重复 ping。
   直接读公开 CDN（**不需要 api_key**）
   `http://cdn2.vr.hoseavr.com/arasset/{proj}/index.json` → `currentVersionCode` + 对应版本的 packageName；
