@@ -3294,6 +3294,21 @@ def delete_macmap(serial):
             STATUS[serial].pop("dev_info", None)
 
 
+def clear_macmap():
+    """一键清空采集对照表（重新开始记录装机台数），返回清掉的条数。"""
+    with MACMAP_LOCK:
+        try:
+            n = len(load_macmap())
+        except Exception:
+            n = 0
+        try:
+            with open(MACMAP_FILE, "w", encoding="utf-8") as f:
+                json.dump({}, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+    return n
+
+
 def reconnect_wifi(serial, ssid, wifi_pass):
     """单台设备重连 WiFi：确保开启 -> connect-network -> 验证，返回结果"""
     result = {"serial": serial, "ok": False, "connected": False,
@@ -4105,6 +4120,10 @@ class Handler(BaseHTTPRequestHandler):
                     for s in results]
             self._send(200, {"results": info, "total": len(results), "ok": ok,
                              "fail": fail, "shutdown": shutdown_list})
+            return
+        if self.path.split("?")[0] == "/api/macmap_clear":
+            n = clear_macmap()
+            self._send(200, {"ok": True, "cleared": n})
             return
         if self.path.split("?")[0] == "/api/macmap_delete":
             data = self._read_body()

@@ -778,6 +778,7 @@
     <div id="macmapArea" style="display:none;margin-top:12px">
       <div class="row" style="margin-bottom:8px">
         <span id="macmapInfo" style="font-size:13px;color:var(--info)"></span>
+        <button class="btn danger sm" id="clearMacmap">清空采集表</button>
         <button class="btn danger sm" id="copyMacmap">复制对照表</button>
         <button class="btn ghost sm" id="toggleMacmap">收起</button>
       </div>
@@ -1967,7 +1968,7 @@ function collectMacmap() {
         ${delBtn}</tr>`;
     }).join('');
     $('macmapArea').style.display = 'block';
-    $('macmapInfo').textContent = `共 ${infos.length} 台设备` +
+    $('macmapInfo').textContent = `累计安装过 ${infos.length} 台设备` +
       (noMac.length ? `，其中 ${noMac.length} 台未获取到 MAC` : '') +
       (deviceIds.length ? `，deviceId 已采集 ${deviceIds.length} 台` : '，deviceId 需抓取');
     if (!infos.length) toast('未发现在线设备', 'err');
@@ -2006,6 +2007,28 @@ async function deleteMacmapRow(btn) {
       btn.disabled = false;
       btn.textContent = old;
       toast('删除失败：' + e.message, 'err');
+    });
+}
+
+async function clearMacmap() {
+  if (!await confirmUI('清空采集表：会删掉所有已采集的 MAC / 序列号 / deviceId 记录，从 0 台重新统计。确定吗？')) return;
+  const btn = $('clearMacmap');
+  const old = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = '清空中…';
+  api('macmap_clear', { method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({}) })
+    .then(r => {
+      if (r && r.error) throw new Error(r.error);
+      toast(`已清空 ${r.cleared || 0} 条采集记录，重新开始统计`, 'ok');
+      $('macmapArea').style.display = 'none';
+      collectMacmap();
+    }).catch(e => {
+      toast('清空失败：' + e.message, 'err');
+    }).finally(() => {
+      btn.disabled = false;
+      btn.textContent = old;
     });
 }
 
@@ -2098,6 +2121,7 @@ function manualCopy(text) {
 }
 
 $('macmapBtn').onclick = collectMacmap;
+$('clearMacmap').onclick = clearMacmap;
 $('copyMacmap').onclick = copyMacmap;
 $('batchDidBtn').onclick = batchGrabDeviceId;
 
