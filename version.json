@@ -1,9 +1,9 @@
 {
-  "version": "1.2.2",
-  "notes": "选择设备新增「清空采集表」，一键清零重新统计装机台数；统计文案改为累计安装台数",
+  "version": "1.2.3",
+  "notes": "修复「一键装助手」/「设置Device Owner」后设备卡片永久显示「安装中」",
   "files": {
-    "launcher.exe": "549713bddaf84c0c68b1ecd001768a14",
-    "web/server.py": "23be5c34df608be08a90fa5cc4e9e94a",
+    "launcher.exe": "7c79b5dd420a1dcbec96cdeecfa7134e",
+    "web/server.py": "e725555034cb389927755f21ede1fd7e",
     "web/index.html": "b96be71f2c8f707f992aca2263fb6d67",
     "web/updater.py": "ee094961d0a2c83c8b498db32a429dc9",
     "启动.bat": "2cf9059ba2f66b7607fd34197477ec81",

@@ -1579,7 +1579,7 @@ def helper_apk_path():
     return p if os.path.isfile(p) else ""
 
 
-def install_helper_one(serial):
+def _install_helper_one(serial):
     """把「安装包更新」助手装到设备（覆盖安装到最新版），并放开「安装未知应用」。
 
     不推送任何业务数据、不重启、不动 fsa——装完就能用遥控器连 WiFi、拉新包。
@@ -1625,6 +1625,18 @@ def install_helper_one(serial):
                 "error": "", "log": logs}
     except Exception as e:
         return {"ok": False, "error": "异常：" + str(e), "log": logs}
+
+
+def install_helper_one(serial):
+    """把「安装包更新」助手装到设备，结束后统一收尾状态。
+
+    内部 set_device_owner_pkg() 会用 log() 写「admin 组件：…」，
+    那条日志会把 STATUS 置成 running；这里必须 finish()，否则卡片永远显示「安装中」。
+    """
+    try:
+        return _install_helper_one(serial)
+    finally:
+        finish(serial)
 
 
 def plain_install_one(serial, apk, grant_perms=False):
@@ -3898,6 +3910,8 @@ class Handler(BaseHTTPRequestHandler):
                     results[s] = set_device_owner_pkg(s, pkg, apk)
                 except Exception as e:
                     results[s] = {"ok": False, "error": f"异常：{e}"}
+                # set_device_owner_pkg 里的 log() 会把该设备置成 running，这里统一收尾
+                finish(s)
             ok_count = sum(1 for r in results.values() if r.get("ok"))
             first_err = next((r.get("error") for r in results.values() if not r.get("ok")), "")
             self._send(200, {"ok": ok_count > 0, "pkg": pkg, "total": len(serials),
