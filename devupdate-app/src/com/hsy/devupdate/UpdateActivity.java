@@ -158,23 +158,21 @@ public class UpdateActivity extends Activity {
             if (st == PackageInstaller.STATUS_SUCCESS) {
                 final String base = (readyInfo.isEmpty() ? "" : readyInfo + " · ") + "安装完成";
                 setStatus(base);
+                // 新装和覆盖安装都补一次：pm grant / DO 授权都是幂等的，
+                // 已授予的不会有副作用；覆盖安装后如果权限被系统重置也能补回来。
                 final String gp = installingPkg;
-                final boolean isNew = installingIsNew;
-                if (isNew && gp != null && !gp.isEmpty()) {
+                if (gp != null && !gp.isEmpty()) {
                     new Thread(new Runnable() {
                         @Override public void run() {
                             final boolean ok = Grants.grant(UpdateActivity.this, gp);
                             ui.post(new Runnable() {
                                 @Override public void run() {
-                                    setStatus(base + (ok ? " · 权限已自动授予"
+                                    setStatus(base + (ok ? " · 权限已授予"
                                             : " · 权限未授予（调试端口没开，可在主页点「一键授权」）"));
                                 }
                             });
                         }
                     }).start();
-                } else if (!isNew) {
-                    // 覆盖安装：系统保留原有授权，不用再授一遍
-                    setStatus(base + " · 权限沿用原有授权");
                 }
                 installing = false;
                 if (current != null) { current.p.note = ""; current = null; }
