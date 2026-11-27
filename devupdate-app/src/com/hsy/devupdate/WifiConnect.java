@@ -30,6 +30,7 @@ public class WifiConnect {
     private int tries;
     private String ssid;
     private String pwd;
+    private boolean open;
     private Callback cb;
 
     public WifiConnect(Context ctx) {
@@ -62,13 +63,14 @@ public class WifiConnect {
     /** 开始连接；已经有连接在进行时直接返回 false。 */
     public boolean connect(String ssid, String pass, boolean open, Callback cb) {
         if (running) return false;
-        WifiManager wifi = (WifiManager) ctx.getSystemService(Context.WIFI_SERVICE);
+        final WifiManager wifi = (WifiManager) ctx.getSystemService(Context.WIFI_SERVICE);
         if (wifi == null) {
             cb.onResult(false, "WiFi 服务不可用");
             return false;
         }
         this.ssid = ssid;
         this.pwd = pass == null ? "" : pass;
+        this.open = open;
         this.cb = cb;
         this.tries = 0;
         this.running = true;
@@ -77,27 +79,52 @@ public class WifiConnect {
             try { wifi.setWifiEnabled(true); } catch (Exception ignored) {}
         }
 
-        WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder().setSsid(ssid);
-        if (!open) builder.setWpa2Passphrase(this.pwd);
-        submitted = builder.build();
-
-        int status;
-        try {
-            status = wifi.addNetworkSuggestions(Collections.singletonList(submitted));
-        } catch (Exception e) {
-            finish(false, "提交失败：" + e.getMessage());
-            return false;
-        }
-        // 0=成功 3=同样的建议已经提交过，都算成功
-        if (status != WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS
-                && status != WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_DUPLICATE) {
-            finish(false, "系统拒绝了连接请求（status=" + status + "）");
-            return false;
-        }
-        // 断开当前网络，逼系统按新的建议重选
-        try { wifi.disconnect(); } catch (Exception ignored) {}
-        ui.postDelayed(pollTask, 2000);
+        // 有本地 adbd 时先用 shell 命令真正切网。
+        // 普通 App 的 wifi.disconnect() 在 Android 10+ 不生效，已经连着别的网络时
+        // WifiNetworkSuggestion 不会被系统选中 —— 这是「扫码后一直连不上」的根因。
+        new Thread(new Runnable() {
+            @Override public void run() {
+                try {
+                    if (AdbLocal.available()) {
+                        String q = quote(WifiConnect.this.ssid);
+                        String cmd = open
+                                ? "cmd wifi connect-network " + q + " open"
+                                : "cmd wifi connect-network " + q + " wpa2 " + quote(WifiConnect.this.pwd);
+                        String out = AdbLocal.shell(cmd, 20000);
+                        android.util.Log.i("WifiConnect", "adb " + cmd + " -> " + out);
+                    }
+                } catch (Exception e) {
+                    android.util.Log.w("WifiConnect", "adb connect-network 失败: " + e);
+                }
+                submitSuggestion(wifi);
+                ui.postDelayed(pollTask, 2000);
+            }
+        }, "wifi-connect").start();
         return true;
+    }
+
+    /** 提交系统建议（没开 adb 端口时的兜底路径）。 */
+    private void submitSuggestion(WifiManager wifi) {
+        try {
+            WifiNetworkSuggestion.Builder builder = new WifiNetworkSuggestion.Builder().setSsid(ssid);
+            if (!open) builder.setWpa2Passphrase(pwd);
+            WifiNetworkSuggestion s = builder.build();
+            int status = wifi.addNetworkSuggestions(Collections.singletonList(s));
+            if (status == WifiManager.STATUS_NETWORK_SUGGESTIONS_SUCCESS
+                    || status == WifiManager.STATUS_NETWORK_SUGGESTIONS_ERROR_ADD_DUPLICATE) {
+                submitted = s;
+            }
+            // 断开当前网络，逼系统按新的建议重选（多数机型不生效，只当尽力而为）
+            try { wifi.disconnect(); } catch (Exception ignored) {}
+        } catch (Exception e) {
+            android.util.Log.w("WifiConnect", "提交建议失败: " + e);
+        }
+    }
+
+    /** shell 单引号转义，SSID/密码里带空格或特殊字符也不会拆错。 */
+    private static String quote(String s) {
+        if (s == null) s = "";
+        return "'" + s.replace("'", "'\\''") + "'";
     }
 
     /** 停止轮询并撤回建议，系统就不会一直拿错密码重试。 */
