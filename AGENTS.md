@@ -178,6 +178,10 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
 ### 6.4 scrcpy 投屏
 `find_scrcpy()` 优先项目内 `scrcpy/scrcpy.exe`（否则 PATH 里可能命中别的版本）；`launch_scrcpy()` 用项目自带 adb（`env["ADB"]`），`DETACHED_PROCESS` 启动。
 
+参数固定 `--render-driver=opengl`（RK3566 在 D3D 路径下画面全绿），**不要加回 `--no-audio`** —— 设备声音默认转发，
+删掉后实测 mkv 录制里有 `A_OPUS` 音轨、`dumpsys audio` 也有 `state:started` 的 AAudio 播放，投屏窗口有声。
+（改代码只影响新开的窗口；已经开着的投屏进程命令行不会变，测之前先 `taskkill /F /IM scrcpy.exe`。）
+
 ### 6.5 更新
 `read_local_version()` / `fetch_remote_version()` / `start_self_update()` / `_updater_cmd()`；
 路由：`GET /api/version`、`GET /api/check_update`、`POST /api/update`（异步，立即返回 `started`）、`GET /api/update_status`（进度 + 日志）、`POST /api/restart`。
