@@ -356,7 +356,7 @@ public class UpdateActivity extends Activity {
         else {
             sortItems();
             adapter.notifyDataSetChanged();
-            setStatus("检查完成 · " + updatable + " 个可以更新（共 " + items.size() + " 个项目）");
+            setStatus("已加载 " + items.size() + " 个景区 · " + updatable + " 个可更新");
         }
     }
 

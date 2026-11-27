@@ -146,7 +146,7 @@ public class MainActivity extends Activity {
         int sel = menu.getSelectedItemPosition();
         items.clear();
         items.add(new Item(MENU_WIFI, "连接 WiFi", wifiSub()));
-        items.add(new Item(MENU_UPDATE, "检查更新", "从发布后台获取最新安装包"));
+        items.add(new Item(MENU_UPDATE, "景区应用列表", "选择景区安装、更新或打开应用"));
         items.add(new Item(MENU_GRANT, "一键授权", grantSub()));
         items.add(new Item(MENU_HOME, "默认桌面", homeSub()));
         if (updateReady) {

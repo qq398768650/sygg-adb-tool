@@ -16,7 +16,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="检查更新"
+            android:text="景区应用列表"
             android:textSize="30sp"
             android:textStyle="bold"
             android:textColor="#F9FAFB" />
@@ -25,7 +25,7 @@
             android:id="@+id/refresh"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="重新检查"
+            android:text="刷新列表"
             android:textSize="17sp"
             android:focusable="true"
             android:background="@drawable/item_bg"
