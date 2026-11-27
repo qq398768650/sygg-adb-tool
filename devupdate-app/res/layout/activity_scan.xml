@@ -4,10 +4,20 @@
     android:layout_height="match_parent"
     android:background="#000000">
 
+
+
     <SurfaceView
         android:id="@+id/scan_surface"
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
+
+    <!-- HAL 往 Surface 渲染的帧在这台机器上是坏的（整片绿），所以自己把回调帧画到这一层盖住它 -->
+    <ImageView
+        android:id="@+id/scan_preview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:scaleType="centerCrop"
+        android:background="#000000" />
 
     <com.hsy.devupdate.ScanOverlay
         android:id="@+id/scan_overlay"

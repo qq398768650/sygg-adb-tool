@@ -34,16 +34,26 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
 
     private static final int REQ_CAMERA = 31;
     private static final long DECODE_INTERVAL_MS = 300;
+    /** 自绘预览的刷新间隔（约 15 fps，转 RGB 比较费） */
+    private static final long SHOW_INTERVAL_MS = 66;
 
     private SurfaceView surface;
+    private android.widget.ImageView preview;
+    private android.graphics.Bitmap frameBmp;
+    private int[] framePx;
+    private byte[] showBuf;
+    private volatile boolean drawing;
+    private long lastShow;
     private TextView status;
     private Camera camera;
     private int frameW, frameH;
     /** 取景框换算到预览帧坐标系里的区域，只解这块 */
     private volatile int roiX, roiY, roiW, roiH;
+    // 预览坏掉时 HAL 会持续送 UV 全 0 的帧（整屏深绿），连续十几帧就重开一次相机
     private ScanOverlay overlay;
     private MultiFormatReader reader;
     private final ExecutorService pool = Executors.newSingleThreadExecutor();
+    private final ExecutorService showPool = Executors.newSingleThreadExecutor();
     private final Handler ui = new Handler(Looper.getMainLooper());
     private long lastTry;
     private boolean handled;       // 已识别到二维码，停止重复解码
@@ -56,6 +66,7 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
         super.onCreate(b);
         setContentView(R.layout.activity_scan);
         surface = findViewById(R.id.scan_surface);
+        preview = findViewById(R.id.scan_preview);
         status = findViewById(R.id.scan_status);
         overlay = findViewById(R.id.scan_overlay);
         connector = new WifiConnect(this);
@@ -230,7 +241,7 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
         Camera.Size best = null;
         // 先试摄像头原生尺寸：SPCA2688 这类 USB 摄像头原生就是 640x480（YUYV），
         // 请求别的尺寸会让 HAL 走 RGA 缩放，RK3566 上实测 rga_nv12_scale_crop 失败 → 整屏绿
-        int[] prefer = {640 * 480, 960 * 540, 1280 * 720, 320 * 240};
+        int[] prefer = {1280 * 720, 960 * 540, 640 * 480, 320 * 240};
         for (int want : prefer) {
             for (Camera.Size s : sizes) {
                 if (s.width * s.height == want) {
@@ -290,6 +301,20 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
             if (cam != null && data != null) cam.addCallbackBuffer(data);
             return;
         }
+        // 自己把回调帧画到 ImageView：这台机器 HAL 往 Surface 渲染的帧是坏的（整片绿/闪烁）
+        long t0 = System.currentTimeMillis();
+        if (t0 - lastShow >= SHOW_INTERVAL_MS && !drawing) {
+            lastShow = t0;
+            drawing = true;
+            final int sw = frameW, sh = frameH;
+            if (showBuf == null || showBuf.length != data.length) showBuf = new byte[data.length];
+            System.arraycopy(data, 0, showBuf, 0, data.length);
+            showPool.execute(new Runnable() {
+                @Override public void run() {
+                    try { drawFrame(showBuf, sw, sh); } finally { drawing = false; }
+                }
+            });
+        }
         long now = System.currentTimeMillis();
         if (now - lastTry < DECODE_INTERVAL_MS) {
             cam.addCallbackBuffer(data);
@@ -302,6 +327,54 @@ public class ScanActivity extends Activity implements SurfaceHolder.Callback, Ca
             @Override public void run() { decode(frame, w, h); }
         });
         cam.addCallbackBuffer(data);
+    }
+
+    /** 把 NV21 帧下采样一半转成 ARGB 画出来（BT.601 定点近似） */
+    private void drawFrame(byte[] yuv, int w, int h) {
+        int dw = w / 2, dh = h / 2;
+        if (dw <= 0 || dh <= 0) return;
+        if (frameBmp == null || frameBmp.getWidth() != dw || frameBmp.getHeight() != dh) {
+            frameBmp = android.graphics.Bitmap.createBitmap(dw, dh, android.graphics.Bitmap.Config.ARGB_8888);
+            framePx = new int[dw * dh];
+        }
+        int uvBase = w * h;
+        for (int y = 0; y < dh; y++) {
+            int yRow = (y * 2) * w;
+            int uvRow = uvBase + y * w;
+            int out = y * dw;
+            for (int x = 0; x < dw; x++) {
+                int Y = yuv[yRow + x * 2] & 0xff;
+                int p = uvRow + x * 2;
+                int V = yuv[p] & 0xff;
+                int U = yuv[p + 1] & 0xff;
+                int r = Y + ((1436 * (V - 128)) >> 10);
+                int g = Y - ((352 * (U - 128) + 731 * (V - 128)) >> 10);
+                int b = Y + ((1814 * (U - 128)) >> 10);
+                if (r < 0) r = 0; else if (r > 255) r = 255;
+                if (g < 0) g = 0; else if (g > 255) g = 255;
+                if (b < 0) b = 0; else if (b > 255) b = 255;
+                framePx[out + x] = 0xff000000 | (r << 16) | (g << 8) | b;
+            }
+        }
+        // 坏帧（HAL 没把色度写进来 → 整片绿）直接丢掉，保留上一帧好画面，避免画面一闪一绿
+        long rs = 0, gs = 0, bs = 0;
+        int ns = 0;
+        for (int i = 0; i < framePx.length; i += 97) {
+            int c = framePx[i];
+            rs += (c >> 16) & 255;
+            gs += (c >> 8) & 255;
+            bs += c & 255;
+            ns++;
+        }
+        if (ns > 0) {
+            long r0 = rs / ns, g0 = gs / ns, b0 = bs / ns;
+            if (g0 > 70 && g0 > r0 * 2 && g0 > b0 * 2) return;
+        }
+        frameBmp.setPixels(framePx, 0, dw, 0, 0, dw, dh);
+        final android.graphics.Bitmap bmp = frameBmp;
+        ui.post(new Runnable() {
+            @Override public void run() { if (preview != null) preview.setImageBitmap(bmp); }
+        });
     }
 
     private void decode(byte[] data, int w, int h) {

@@ -263,13 +263,17 @@ subprocess.Popen(["cmd", "/c", "start", "", "/min", "powershell", ...],
     **解码只取框内 ROI**（`updateRoi()` 把控件坐标按 `frameW/viewW` 换算成预览帧坐标），框内没有码就什么都不做，跟常见扫码 App 的行为一致。
     `activity_scan.xml` 里 `ScanOverlay` 必须放在 `SurfaceView` 之后、标题/状态 `TextView` 之前，否则遮罩会盖住文字。
   - 相机三个坑：① `Camera.open()` 要 1~3 秒，**必须放后台线程**（主线程会 ANR，`WifiActivity ... Waited 5000ms for FocusEvent`）；
-    ② 预览分辨率必须先用摄像头**原生尺寸 640x480**（`{640*480, 960*540, 1280*720, 320*240}` 这个顺序）。SPCA2688 这类 USB 摄像头原生是 640x480，
-    请求 1280x720 会让 HAL 走 RGA 缩放，RK3566 上 `rga_nv12_scale_crop:rga blit failed` 刷屏、预览**整片深绿**（UV 全 0）；
-    选 1600x1200 时只有 **0.097 FPS**；
-    ③ `setDisplayOrientation(0)`，设 180 画面会倒。
+    ② **预览要自己画，不能靠 SurfaceView**（2026-11-27 实测）：SPCA2688 这块 USB 摄像头在 RK3566 上，HAL 往 Surface 渲染的帧
+    有一半是坏的（`rga_nv12_scale_crop:rga blit failed` 刷屏，截图整片纯绿 `(0,136,0)`，绿/正常逐帧交替 = 屏幕一闪一闪），
+    但**同一路 `onPreviewFrame` 回调数据是好的**。所以 `activity_scan.xml` 里 `SurfaceView` 上面盖一层 `ImageView`（`@id/scan_preview`，
+    `scaleType="centerCrop"`、黑色背景，必须完全不透明才盖得住），在 `onPreviewFrame` 里把 NV21 下采样一半转 ARGB（BT.601 定点）
+    每 ~66ms 刷一次 `setImageBitmap`；`drawFrame()` 里统计 RGB 均值，`g > 70 && g > r*2 && g > b*2` 判为坏帧直接丢掉，保留上一帧好画面，这样不闪。
+    **别改成 `setPreviewTexture(new SurfaceTexture(0))` 离屏预览**：实测那样回调数据也变坏（画面全绿）；
+    ③ `pickSize()` 用 `{1280*720, 960*540, 640*480, 320*240}` —— 640x480 时回调 buffer **全 0**（`Yavg=0 Yrange=0..0`），
+    1280x720 回调正常（`Yavg=143 Yrange=5..211`）；1600x1200 只有 **0.097 FPS**。`setDisplayOrientation(0)`，设 180 画面会倒。
   - 预览格式别硬写 `setPreviewFormat(NV21)`：先看 `getSupportedPreviewFormats()`，支持才设。回调缓冲按 `getPreviewFormat()` 算大小，给两块减少丢帧。
   - 连接失败会 `handled = false` 并重开相机，用户不用退出重进。
-  - 实测：相机 640x480 正常取景（2026-11-27 换的 SPCA2688 USB 摄像头在这个尺寸下才不绿），框内对准二维码能识别并进入「识别到 X，正在连接…」。
+  - 实测：相机 1280x720 自绘预览正常取景、不绿不闪（2026-11-27 换的 SPCA2688 USB 摄像头），框内对准二维码能识别并进入「识别到 X，正在连接…」。
 - **踩过的坑**：① 后台线程直接改 UI 会抛 `Only the original thread that created a view hierarchy can touch its views`，所有 `setStatus` / `progress` 必须 `ui.post`；② 下载中断后重试要先比对文件大小，完整则跳过重下。
 
 #### 6.8.1 差分更新（只下变化的块）
