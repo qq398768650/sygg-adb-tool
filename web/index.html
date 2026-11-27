@@ -764,6 +764,7 @@
       <button class="btn ghost sm" id="uncheckAll">全不选</button>
       <button class="btn ghost sm" id="macmapBtn">收集MAC/序列号对照表</button>
       <button class="btn ghost sm" id="batchDidBtn">批量抓取 deviceId（全部在线）</button>
+      <button class="btn ghost sm" id="helperBtn">一键装助手</button>
       <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--info);cursor:pointer">
         <input type="checkbox" id="shutdownChk" style="width:16px;height:16px">抓完自动关机
       </label>
@@ -2099,6 +2100,44 @@ function manualCopy(text) {
 $('macmapBtn').onclick = collectMacmap;
 $('copyMacmap').onclick = copyMacmap;
 $('batchDidBtn').onclick = batchGrabDeviceId;
+
+// 一键给所有在线设备装「安装包更新」助手（devupdate-app/DevUpdate.apk）
+async function installHelper() {
+  const devs = (state.devices || []).slice();
+  if (!devs.length) { toast('没有在线设备', 'err'); return; }
+  const ok = await confirmUI(`给 ${devs.length} 台设备安装「安装包更新」助手并设为 Device Owner？\n已装过的会覆盖成最新版；设备已被别的应用占用 DO 时会跳过并提示。`);
+  if (!ok) return;
+  const btn = $('helperBtn');
+  const old = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = '安装中…';
+  try {
+    const d = await api('install_helper', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ serials: devs }),
+      timeout: 300000,
+    });
+    if (d.ok) {
+      const rs = Object.entries(d.results || {});
+      const bad = rs.filter(([, r]) => !r.ok)
+        .map(([s, r]) => s.slice(-6) + '：' + (r.error || '失败'));
+      const noDo = rs.filter(([, r]) => r.ok && !r.do_ok)
+        .map(([s, r]) => s.slice(-6) + '：' + (r.do_error || 'DO 未设置'));
+      let msg = `已装 ${d.ok_count}/${d.total} 台`;
+      if (bad.length) msg += '｜安装失败 ' + bad.join('；');
+      if (noDo.length) msg += '｜DO 未设 ' + noDo.join('；');
+      toast(msg, (bad.length || noDo.length) ? 'err' : 'ok', 9000);
+    } else {
+      toast('安装失败：' + (d.error || '未知错误'), 'err', 6000);
+    }
+  } catch (e) {
+    toast('安装失败：' + e.message, 'err');
+  } finally {
+    btn.disabled = false; btn.innerHTML = old;
+    refreshDevices(true);
+  }
+}
+$('helperBtn').onclick = installHelper;
 $('toggleMacmap').onclick = () => {
   const t = $('macmapTable');
   const btn = $('toggleMacmap');

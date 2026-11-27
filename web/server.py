@@ -1528,6 +1528,59 @@ def install_one(serial, apk, pkg, act, wifi_ssid, wifi_pass):
         finish(serial)
 
 
+HELPER_PKG = "com.hsy.devupdate"          # 设备端「安装包更新」助手
+HELPER_APK = "devupdate-app/DevUpdate.apk"
+
+
+def helper_apk_path():
+    """设备端更新助手 APK 的位置：项目根 devupdate-app/DevUpdate.apk。"""
+    p = os.path.join(PROJECT_DIR, "devupdate-app", "DevUpdate.apk")
+    return p if os.path.isfile(p) else ""
+
+
+def install_helper_one(serial):
+    """把「安装包更新」助手装到设备（覆盖安装到最新版），并放开「安装未知应用」。
+
+    不推送任何业务数据、不重启、不动 fsa——装完就能用遥控器连 WiFi、拉新包。
+    """
+    apk = helper_apk_path()
+    logs = []
+    if not apk:
+        return {"ok": False, "error": "找不到 devupdate-app/DevUpdate.apk（压缩包里少了这个文件？）",
+                "log": logs}
+    if not os.path.isfile(apk):
+        return {"ok": False, "error": "更新助手 APK 路径无效", "log": logs}
+    try:
+        rc, out = adb_shell(serial, ["install", "-r", "-g", apk], timeout=300)
+        text = (out or "").strip()
+        for ln in text.splitlines():
+            ln = ln.strip()
+            if ln:
+                logs.append(ln)
+        if rc != 0 or "success" not in text.lower():
+            return {"ok": False, "error": text or "安装失败", "log": logs}
+        rc2, _o2 = adb_shell(serial, ["appops", "set", HELPER_PKG,
+                                      "REQUEST_INSTALL_PACKAGES", "allow"], timeout=30)
+        logs.append("REQUEST_INSTALL_PACKAGES = " + ("allow" if rc2 == 0 else "设置失败"))
+
+        # 装完顺手设成 Device Owner（这样它能给业务 App 直接授运行时权限）
+        do_ok, do_err, owner = False, "", ""
+        try:
+            d = set_device_owner_pkg(serial, HELPER_PKG, apk)
+            do_ok = bool(d.get("ok"))
+            do_err = "" if do_ok else (d.get("error") or "设置失败")
+            owner = d.get("owner") or ""
+            for ln in (d.get("log") or []):
+                logs.append(ln)
+        except Exception as e:
+            do_err = "设 Device Owner 异常：" + str(e)
+            logs.append(do_err)
+        return {"ok": True, "do_ok": do_ok, "do_error": do_err, "owner": owner,
+                "error": "", "log": logs}
+    except Exception as e:
+        return {"ok": False, "error": "异常：" + str(e), "log": logs}
+
+
 def plain_install_one(serial, apk, grant_perms=False):
     """普通安装：执行 adb install -r；可选在安装后授予运行时权限。
 
@@ -3736,6 +3789,34 @@ class Handler(BaseHTTPRequestHandler):
                 threading.Thread(target=uninstall_one, args=(s, pkg)).start()
             self._send(200, {"ok": True, "started": len(serials)})
             return
+        if self.path.split("?")[0] == "/api/install_helper":
+            data = self._read_body()
+            serials = data.get("serials") or list_devices()
+            if not serials:
+                self._send(400, {"ok": False, "error": "没有在线的设备"})
+                return
+            if not helper_apk_path():
+                self._send(400, {"ok": False,
+                                 "error": "找不到 devupdate-app/DevUpdate.apk，请确认程序目录完整"})
+                return
+            results = {}
+
+            def _one(s):
+                try:
+                    return install_helper_one(s)
+                except Exception as e:
+                    return {"ok": False, "error": "异常：" + str(e), "log": []}
+
+            # 多台并行装，否则 N 台串行要等到天荒地老
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(serials))) as ex:
+                for s, r in zip(serials, ex.map(_one, serials)):
+                    results[s] = r
+            ok_count = sum(1 for r in results.values() if r.get("ok"))
+            first_err = next((r.get("error") for r in results.values() if not r.get("ok")), "")
+            self._send(200, {"ok": ok_count > 0, "total": len(serials),
+                             "ok_count": ok_count, "results": results, "error": first_err})
+            return
+
         if self.path.split("?")[0] == "/api/set_device_owner":
             data = self._read_body()
             serials = data.get("serials") or []
