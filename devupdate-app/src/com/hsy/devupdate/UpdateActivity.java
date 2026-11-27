@@ -111,6 +111,8 @@ public class UpdateActivity extends Activity {
     /** 下载完等待安装的任务（一次只弹一个系统安装框） */
     private final java.util.ArrayDeque<Job> jobs = new java.util.ArrayDeque<Job>();
     private boolean installing = false;
+    /** 界面是否还活着：下载线程跑完时界面可能已经关了，这时不再弹安装框（下次点会走缓存直接装） */
+    private volatile boolean alive = true;
     /** 当前正在安装的那个任务（安装回调回来时用它清状态） */
     private Job current = null;
 
@@ -212,7 +214,10 @@ public class UpdateActivity extends Activity {
     @Override
     protected void onDestroy() {
         try { unregisterReceiver(installReceiver); } catch (Exception ignored) {}
-        pool.shutdownNow();
+        // 用 shutdown 而不是 shutdownNow：正在下载的线程要让它把文件写完，
+        // 否则用户返回主界面就等于把 1GB 的下载白扔了（下次还得从头来）。
+        alive = false;
+        pool.shutdown();
         super.onDestroy();
     }
 
@@ -576,26 +581,40 @@ public class UpdateActivity extends Activity {
         }
     }
 
+    /** 下载整包；已有部分文件时用 Range 续传，别让中断一次就白下一遍。 */
     private void downloadFile(String urlStr, File out, long total, final Proj p) throws Exception {
+        long have = out.exists() ? out.length() : 0;
+        if (total > 0 && have >= total) return;           // 已经下完了
         HttpURLConnection c = (HttpURLConnection) new URL(urlStr).openConnection();
         c.setConnectTimeout(20000);
         c.setReadTimeout(60000);
         c.setInstanceFollowRedirects(true);
+        if (have > 0) c.setRequestProperty("Range", "bytes=" + have + "-");
         int code = c.getResponseCode();
-        if (code != 200) throw new RuntimeException("HTTP " + code);
+        boolean append;
+        if (code == 206) {
+            append = true;                                // 服务器认了断点
+        } else if (code == 200) {
+            append = false; have = 0;                     // 从头给（服务器不支持 Range）
+        } else if (code == 416) {
+            return;                                       // 本地已经完整
+        } else {
+            throw new RuntimeException("HTTP " + code);
+        }
         long len = c.getContentLengthLong();
-        if (len <= 0) len = total;
+        if (len <= 0) len = total > 0 ? total : have;
+        final long totalLen = total > 0 ? total : (have + len);
         InputStream is = c.getInputStream();
-        FileOutputStream os = new FileOutputStream(out);
+        FileOutputStream os = new FileOutputStream(out, append);
         byte[] buf = new byte[131072];
-        long got = 0;
+        long got = have;
         int n;
         int lastPct = -1;
         while ((n = is.read(buf)) > 0) {
             os.write(buf, 0, n);
             got += n;
-            if (len > 0) {
-                final int pct = (int) (got * 100 / len);
+            if (totalLen > 0) {
+                final int pct = (int) (got * 100 / totalLen);
                 if (pct != lastPct) {
                     lastPct = pct;
                     p.pct = pct;
@@ -609,6 +628,9 @@ public class UpdateActivity extends Activity {
         os.close();
         is.close();
         c.disconnect();
+        if (total > 0 && out.length() != total) {
+            throw new RuntimeException("下载不完整（" + out.length() + "/" + total + "），再点一次会从断点继续");
+        }
     }
 
     /** 下载完的任务排进安装队列——系统一次只弹一个安装确认框，串着来才不会互相顶掉。 */
@@ -621,7 +643,7 @@ public class UpdateActivity extends Activity {
 
     /** 取队列里的下一个任务开始安装；安装回调回来后会再调一次。 */
     private void pumpInstall() {
-        if (installing) return;
+        if (!alive || installing) return;
         Job j;
         synchronized (jobs) { j = jobs.poll(); }
         if (j == null) return;
